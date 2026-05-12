@@ -1,223 +1,261 @@
 # tokenvizPPT
 
-Web-first AI PPT generation and editing application.
+tokenvizPPT is a web PPT generator for creating, editing, and exporting editable PowerPoint decks from prompts and uploaded files.
 
-This project is a clean implementation. It does not modify or reuse files from `oh-my-ppt`.
+The frontend handles the creation workflow. Model calls, API keys, file parsing, asset storage, background jobs, and PPTX export stay in the Python backend.
 
-## Current Status
+## Features
 
-The repository currently contains the Phase 0 skeleton:
+- Generate PPT decks from prompts, style skills, and uploaded files.
+- Upload txt, md, csv, pdf, docx, xlsx, and images as generation context.
+- Analyze uploaded images with a vision-capable model.
+- Optionally generate AI visuals when a slide genuinely needs one.
+- Edit slides, text, images, and rollback versions.
+- Keep local deck history without login.
+- Export editable `.pptx` files.
+- Switch UI language between English and Chinese.
 
-- React + Vite frontend.
-- FastAPI backend.
-- Conda Python 3.12 environment named `tokenvizppt`.
-- Basic health API.
-- File-backed create-session API.
-- File-backed generation-start API.
-- SSE progress stream.
-- Cloud-LLM slide planning with deterministic fallback.
-- Deterministic HTML slide rendering.
-- Browser preview after generation completes.
+## Stack
 
-## Backend Setup
-
-The Conda environment has already been created locally:
-
-```bash
-conda activate tokenvizppt
+```text
+frontend/          React + Vite
+backend/           FastAPI + Celery + SQLAlchemy + python-pptx
+docker-compose.yml PostgreSQL + Redis
+storage/           uploaded files, generated assets, exported PPTX files
 ```
 
-Install backend dependencies:
+## Local Development
+
+Requirements:
+
+- Python 3.12
+- Node.js 20+
+- Docker and Docker Compose
+
+Install dependencies:
 
 ```bash
 cd backend
-pip install -e .[dev]
-npm install
 cp .env.example .env
+python -m pip install -e .[dev]
+npm install
+
+cd ../frontend
+npm install
 ```
 
-The backend `npm install` is used by the editable PPTX exporter. The export path first tries
-`dom-to-pptx` for higher-fidelity editable PowerPoint output and falls back to the Python exporter
-if that conversion fails.
-
-## One-Command Development
-
-Recommended local startup:
+Edit `backend/.env`:
 
 ```bash
-cd /home/duoduo/Documents/claude_project/ppt_generate/tokenvizPPT
+TOKENVIZPPT_LLM_MODEL=your-model
+TOKENVIZPPT_LLM_API_KEY=your-key
+TOKENVIZPPT_LLM_BASE_URL=https://your-openai-compatible-api/v1
+```
+
+Start everything:
+
+```bash
+cd /path/to/tokenvizPPT
 ./scripts/dev.sh
 ```
 
-This starts:
+Development URLs:
 
-- Docker PostgreSQL on `localhost:15432`
-- Docker Redis on `localhost:16379`
-- FastAPI on `http://localhost:8000`
-- Celery worker
-- Vite frontend on `http://localhost:5173`
-
-Press `Ctrl+C` to stop the API, worker, and frontend. Docker services stay running so subsequent
-starts are faster.
-
-Stop Docker services when needed:
-
-```bash
-docker compose down
+```text
+Frontend:   http://localhost:5173
+FastAPI:    http://localhost:8000
+PostgreSQL: localhost:15432
+Redis:      localhost:16379
 ```
 
-## Manual Backend Startup
-
-Start the API in one terminal:
-
-```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Start the Celery worker in another terminal:
-
-```bash
-cd backend
-conda activate tokenvizppt
-python -m celery -A app.workers.celery_app.celery_app worker --loglevel=info
-```
-
-Health check:
+Health checks:
 
 ```bash
 curl http://localhost:8000/api/health
-```
-
-## Database Setup
-
-Phase 2 adds PostgreSQL and Redis infrastructure. The current generation flow still uses local
-file-backed storage until the database-backed repository is wired in.
-
-Start local services:
-
-```bash
-cd /home/duoduo/Documents/claude_project/ppt_generate/tokenvizPPT
-docker compose up -d postgres redis
-```
-
-The compose services intentionally use uncommon host ports to avoid conflicts with local services:
-
-```text
-PostgreSQL: localhost:15432 -> container:5432
-Redis:      localhost:16379 -> container:6379
-```
-
-Run migrations:
-
-```bash
-cd backend
-conda activate tokenvizppt
-alembic upgrade head
-```
-
-Check database mirror counts after generating a deck:
-
-```bash
 curl http://localhost:8000/api/health/db
 ```
 
-## Frontend Setup
+## Configuration
+
+All model configuration is backend-only. Never put API keys in frontend code.
+
+Common `backend/.env` values:
 
 ```bash
-cd frontend
-npm install
-npm run dev
-```
+TOKENVIZPPT_APP_ENV=development
+TOKENVIZPPT_DATABASE_URL=postgresql+psycopg://tokenvizppt:tokenvizppt@localhost:15432/tokenvizppt
+TOKENVIZPPT_REDIS_URL=redis://localhost:16379/0
+TOKENVIZPPT_STORAGE_ROOT=../storage
+TOKENVIZPPT_CORS_ORIGINS=["http://localhost:5173"]
 
-Open:
-
-```text
-http://localhost:5173
-```
-
-The Vite dev server proxies `/api` to `http://localhost:8000`.
-
-## Phase 1 Behavior
-
-Generation tries the backend-configured cloud LLM first. If the model is not configured or returns
-invalid JSON, it falls back to the deterministic local planner so the main flow remains testable.
-It writes session metadata and generated slide HTML under:
-
-```text
-storage/sessions/
-```
-
-This keeps the first web loop testable before adding PostgreSQL and Celery.
-
-## Model Configuration
-
-The frontend must remain model-agnostic. LLM configuration is backend-only through environment variables:
-
-```bash
 TOKENVIZPPT_LLM_PROVIDER=openai
-TOKENVIZPPT_LLM_MODEL=gpt-4o-mini
-TOKENVIZPPT_LLM_API_KEY=...
-TOKENVIZPPT_LLM_BASE_URL=
+TOKENVIZPPT_LLM_MODEL=your-model
+TOKENVIZPPT_LLM_API_KEY=your-key
+TOKENVIZPPT_LLM_BASE_URL=https://your-openai-compatible-api/v1
+TOKENVIZPPT_LLM_TIMEOUT_SECONDS=120
+
+TOKENVIZPPT_GENERATION_SLIDE_CONCURRENCY=3
+TOKENVIZPPT_IMAGE_ANALYSIS_CONCURRENCY=3
 ```
 
-Local model support is intentionally excluded.
+Optional AI image generation:
 
-Config location:
+```bash
+TOKENVIZPPT_AI_IMAGE_ENABLED=true
+TOKENVIZPPT_AI_IMAGE_MODEL=gpt-image-2
+TOKENVIZPPT_AI_IMAGE_API_KEY=your-image-key
+TOKENVIZPPT_AI_IMAGE_BASE_URL=https://your-image-api
+TOKENVIZPPT_AI_IMAGE_MAX_PER_DECK=2
+```
+
+## Server Deployment
+
+Recommended production layout:
 
 ```text
-backend/.env
+Browser -> http://SERVER_IP:6000
+Nginx :6000 -> frontend/dist
+Nginx /api/* -> FastAPI 127.0.0.1:6001
+PostgreSQL and Redis -> local only
+Celery worker -> background generation/export jobs
 ```
 
-Create it from the example:
+Only expose `6000` publicly. Do not expose `6001`, `15432`, or `16379`.
+
+### 1. Prepare
+
+```bash
+sudo apt update
+sudo apt install -y git nginx docker.io docker-compose-plugin python3.12 python3.12-venv nodejs npm
+
+git clone git@github.com:GreyFeatherVoid/tokenvizppt.git
+cd tokenvizppt
+```
+
+Use Node.js 20+ if the distro package is old.
+
+### 2. Configure
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-For official OpenAI, leave `TOKENVIZPPT_LLM_BASE_URL` empty. For OpenAI-compatible cloud providers,
-set `TOKENVIZPPT_LLM_BASE_URL` to the provider's `/v1` endpoint, for example:
+Set production values:
 
 ```bash
-TOKENVIZPPT_LLM_BASE_URL=https://api.deepseek.com/v1
+TOKENVIZPPT_APP_ENV=production
+TOKENVIZPPT_DATABASE_URL=postgresql+psycopg://tokenvizppt:tokenvizppt@localhost:15432/tokenvizppt
+TOKENVIZPPT_REDIS_URL=redis://localhost:16379/0
+TOKENVIZPPT_STORAGE_ROOT=../storage
+TOKENVIZPPT_CORS_ORIGINS=["http://SERVER_IP:6000"]
+TOKENVIZPPT_LLM_MODEL=your-model
+TOKENVIZPPT_LLM_API_KEY=your-key
+TOKENVIZPPT_LLM_BASE_URL=https://your-openai-compatible-api/v1
 ```
 
-Restart the backend after changing `.env`.
-
-## AI Image Configuration
-
-AI image generation is backend-only and disabled by default. Configure it in `backend/.env`:
-
-```bash
-TOKENVIZPPT_AI_IMAGE_ENABLED=true
-TOKENVIZPPT_AI_IMAGE_PROVIDER=openai
-TOKENVIZPPT_AI_IMAGE_MODEL=gpt-image-2
-TOKENVIZPPT_AI_IMAGE_API_KEY=...
-TOKENVIZPPT_AI_IMAGE_BASE_URL=https://your-compatible-image-api/v1
-TOKENVIZPPT_AI_IMAGE_DEFAULT_SIZE=1536x1024
-TOKENVIZPPT_AI_IMAGE_MAX_PER_DECK=2
-```
-
-Generated images are intended as sparse visual anchors, not filler. The slide generation flow should
-decide that a specific page needs an AI image before the image API is called. Search-image
-integration is deferred because copyright, attribution, and quality risks are higher.
-
-## LLM Diagnostics
-
-To reproduce slow/504 behavior with the current business HTML prompt:
+### 3. Install And Build
 
 ```bash
 cd backend
-conda activate tokenvizppt
-python scripts/reproduce_504.py --attempts 3 --concurrency 1 --timeout 120
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+npm install
+
+cd ../frontend
+npm install
+npm run build
 ```
 
-To test whether concurrency increases failures:
+### 4. Start Data Services
 
 ```bash
-python scripts/reproduce_504.py --attempts 4 --concurrency 2 --timeout 120
+cd /path/to/tokenvizppt
+docker compose up -d postgres redis
+
+cd backend
+source .venv/bin/activate
+alembic upgrade head
 ```
 
-## Implementation Plan
+### 5. Start App Services
+
+API:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m uvicorn app.main:app --host 127.0.0.1 --port 6001
+```
+
+Worker:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m celery -A app.workers.celery_app.celery_app worker --loglevel=info
+```
+
+For real deployment, run both commands with `systemd`, `supervisor`, or another process manager.
+
+### 6. Configure Nginx
+
+Create `/etc/nginx/sites-available/tokenvizppt`:
+
+```nginx
+server {
+    listen 6000;
+    server_name _;
+
+    client_max_body_size 100M;
+
+    location / {
+        root /path/to/tokenvizppt/frontend/dist;
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:6001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}
+```
+
+Enable:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/tokenvizppt /etc/nginx/sites-enabled/tokenvizppt
+sudo nginx -t
+sudo systemctl reload nginx
+sudo ufw allow 6000/tcp
+```
+
+Check:
+
+```text
+http://SERVER_IP:6000
+http://SERVER_IP:6000/api/health
+```
+
+## Deployment Checklist
+
+- `backend/.env` exists and is not committed.
+- PostgreSQL and Redis are running.
+- `alembic upgrade head` completed.
+- `frontend/dist` exists.
+- FastAPI responds at `127.0.0.1:6001/api/health`.
+- Nginx responds at `SERVER_IP:6000/api/health`.
+- Browser upload, generation, history, and PPTX export work.
+
+## Plan
 
 See [docs/plan.md](docs/plan.md).
