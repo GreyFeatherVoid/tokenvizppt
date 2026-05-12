@@ -1,0 +1,15 @@
+{
+  "id": "bauhaus",
+  "label": {
+    "en-US": "Bauhaus Geometry",
+    "zh-CN": "包豪斯几何"
+  },
+  "description": {
+    "en-US": "Geometric primary colors, modernist structure, strong graphic rhythm.",
+    "zh-CN": "几何三原色、现代主义结构和强烈图形节奏。"
+  },
+  "visual_language": {
+    "en-US": "primary color geometry, circles/blocks, modernist poster layout",
+    "zh-CN": "三原色几何、圆形与色块、现代主义海报"
+  }
+}

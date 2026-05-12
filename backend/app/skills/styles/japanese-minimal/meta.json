@@ -1,0 +1,15 @@
+{
+  "id": "japanese-minimal",
+  "label": {
+    "en-US": "Japanese Minimal",
+    "zh-CN": "日式极简"
+  },
+  "description": {
+    "en-US": "Quiet natural palette, disciplined asymmetry, subtle editorial calm.",
+    "zh-CN": "安静自然色，纪律化不对称和编辑式平静。"
+  },
+  "visual_language": {
+    "en-US": "washi paper, muted red stamp accent, asymmetry, calm spacing",
+    "zh-CN": "和纸质感、暗红印章、不对称、平静间距"
+  }
+}

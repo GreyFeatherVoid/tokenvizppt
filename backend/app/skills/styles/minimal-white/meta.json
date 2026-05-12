@@ -1,0 +1,15 @@
+{
+  "id": "minimal-white",
+  "label": {
+    "en-US": "Minimal White",
+    "zh-CN": "极简白"
+  },
+  "description": {
+    "en-US": "Quiet white-space driven deck with thin rules and premium restraint.",
+    "zh-CN": "以留白驱动的安静风格，细线和高级克制感。"
+  },
+  "visual_language": {
+    "en-US": "white canvas, sparse typography, hairline dividers, calm hierarchy",
+    "zh-CN": "白色画布、稀疏排版、发丝线、冷静层级"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "tech",
+  "label": {
+    "en-US": "Tech Signal",
+    "zh-CN": "科技信号"
+  },
+  "description": {
+    "en-US": "Modern technology keynote with luminous accents and structured grids.",
+    "zh-CN": "现代科技发布会风格，发光点缀和结构化网格。"
+  },
+  "visual_language": {
+    "en-US": "dark-to-light tech gradients, precise panels, product launch energy",
+    "zh-CN": "科技渐变、精确面板、产品发布会能量"
+  }
+}

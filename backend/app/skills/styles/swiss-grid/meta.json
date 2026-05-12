@@ -1,0 +1,15 @@
+{
+  "id": "swiss-grid",
+  "label": {
+    "en-US": "Swiss Grid",
+    "zh-CN": "瑞士网格"
+  },
+  "description": {
+    "en-US": "Rational typographic grid with strict alignment and red/black accents.",
+    "zh-CN": "理性字体网格，严格对齐，红黑强调。"
+  },
+  "visual_language": {
+    "en-US": "Swiss typography, grid lines, clean columns, rational precision",
+    "zh-CN": "瑞士字体、网格线、清晰分栏、理性精确"
+  }
+}

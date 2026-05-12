@@ -1,0 +1,15 @@
+{
+  "id": "pitch",
+  "label": {
+    "en-US": "Venture Pitch",
+    "zh-CN": "融资路演"
+  },
+  "description": {
+    "en-US": "High-contrast startup pitch deck style with confident metrics and momentum.",
+    "zh-CN": "高对比创业路演风格，强调指标和增长势能。"
+  },
+  "visual_language": {
+    "en-US": "investor narrative, bold numbers, traction cards, crisp contrast",
+    "zh-CN": "投资人叙事、大数字、增长卡片、清晰对比"
+  }
+}

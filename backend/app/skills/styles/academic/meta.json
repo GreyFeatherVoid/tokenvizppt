@@ -1,0 +1,15 @@
+{
+  "id": "academic",
+  "label": {
+    "en-US": "Academic Paper",
+    "zh-CN": "学术论文"
+  },
+  "description": {
+    "en-US": "Research presentation style with crisp structure and citation-like rhythm.",
+    "zh-CN": "研究汇报风格，结构清晰，有论文引用般的节奏。"
+  },
+  "visual_language": {
+    "en-US": "serif titles, clean evidence blocks, restrained scholarly palette",
+    "zh-CN": "衬线标题、证据块、克制学术配色"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "executive",
+  "label": {
+    "en-US": "Executive Calm",
+    "zh-CN": "高管沉稳"
+  },
+  "description": {
+    "en-US": "Boardroom-ready, restrained, data-forward, warm neutral canvas.",
+    "zh-CN": "适合高管汇报，克制、数据优先、暖中性色画布。"
+  },
+  "visual_language": {
+    "en-US": "editorial business report, elegant cards, strong hierarchy",
+    "zh-CN": "商业报告编辑风、精致卡片、强层级"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "luxury-dark",
+  "label": {
+    "en-US": "Luxury Dark",
+    "zh-CN": "奢华暗色"
+  },
+  "description": {
+    "en-US": "Premium black canvas with gold accents and cinematic restraint.",
+    "zh-CN": "高级黑色画布，金色点缀和电影感克制。"
+  },
+  "visual_language": {
+    "en-US": "black canvas, gold rules, premium editorial contrast",
+    "zh-CN": "黑色画布、金色细线、高级编辑对比"
+  }
+}

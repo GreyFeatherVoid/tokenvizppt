@@ -1,0 +1,8 @@
+backend/.env
+storage/
+snapshots/
+frontend/dist/
+frontend/node_modules/
+backend/.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,15 @@
+{
+  "id": "data-studio",
+  "label": {
+    "en-US": "Data Studio",
+    "zh-CN": "数据工作室"
+  },
+  "description": {
+    "en-US": "Analytical dashboard-like layouts with clear metrics and evidence rhythm.",
+    "zh-CN": "分析型布局，清晰指标和证据节奏。"
+  },
+  "visual_language": {
+    "en-US": "metric cards, comparison grids, calm data hierarchy",
+    "zh-CN": "指标卡、对比网格、冷静数据层级"
+  }
+}

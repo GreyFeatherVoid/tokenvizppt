@@ -1,0 +1,15 @@
+{
+  "id": "newsroom",
+  "label": {
+    "en-US": "Newsroom Red",
+    "zh-CN": "新闻红"
+  },
+  "description": {
+    "en-US": "Urgent editorial news layout with white canvas and red vertical accents.",
+    "zh-CN": "新闻编辑式布局，白色画布和红色竖向强调。"
+  },
+  "visual_language": {
+    "en-US": "news graphics, red bars, bold headlines, information hierarchy",
+    "zh-CN": "新闻图表、红色条、粗标题、信息层级"
+  }
+}

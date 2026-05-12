@@ -1,0 +1,15 @@
+{
+  "id": "neo-brutal",
+  "label": {
+    "en-US": "Neo Brutal",
+    "zh-CN": "新粗野"
+  },
+  "description": {
+    "en-US": "Thick borders, hard shadows, high contrast, direct startup energy.",
+    "zh-CN": "粗边框、硬阴影、高对比和直接的创业能量。"
+  },
+  "visual_language": {
+    "en-US": "bold outlines, hard shadows, loud accent blocks, raw confidence",
+    "zh-CN": "粗轮廓、硬阴影、高声量色块、原始自信"
+  }
+}

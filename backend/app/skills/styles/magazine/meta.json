@@ -1,0 +1,15 @@
+{
+  "id": "magazine",
+  "label": {
+    "en-US": "Magazine Feature",
+    "zh-CN": "杂志专题"
+  },
+  "description": {
+    "en-US": "Bold editorial composition with large typography and asymmetric layouts.",
+    "zh-CN": "大胆编辑排版，大字号字体和不对称版式。"
+  },
+  "visual_language": {
+    "en-US": "print magazine spread, oversized headings, confident whitespace",
+    "zh-CN": "杂志跨页、大标题、自信留白"
+  }
+}

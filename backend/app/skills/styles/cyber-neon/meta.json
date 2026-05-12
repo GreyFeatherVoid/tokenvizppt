@@ -1,0 +1,15 @@
+{
+  "id": "cyber-neon",
+  "label": {
+    "en-US": "Cyber Neon",
+    "zh-CN": "赛博霓虹"
+  },
+  "description": {
+    "en-US": "Dark cyber interface with neon accents and cinematic contrast.",
+    "zh-CN": "深色赛博界面，霓虹点缀和电影感对比。"
+  },
+  "visual_language": {
+    "en-US": "dark canvas, neon lines, HUD panels, futuristic glow",
+    "zh-CN": "深色画布、霓虹线、HUD 面板、未来发光"
+  }
+}
