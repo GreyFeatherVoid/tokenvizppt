@@ -174,6 +174,13 @@ class AssetStore:
                 raise AssetNotFoundError("Asset not found")
             return self._to_dict(row)
 
+    def get_asset_by_id(self, asset_id: str) -> dict:
+        with SessionLocal() as db:
+            row = db.get(Asset, asset_id)
+            if not row:
+                raise AssetNotFoundError("Asset not found")
+            return self._to_dict(row)
+
     def update_asset_metadata(
         self,
         session_id: str,

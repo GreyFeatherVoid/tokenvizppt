@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { api, type StylePreset } from '../../lib/api'
 import type { SourceFileInput } from '../../hooks/useDeckGeneration'
@@ -32,10 +32,10 @@ export function GenerationForm({
   onSubmit,
 }: GenerationFormProps): React.JSX.Element {
   const { language, t } = useI18n()
-  const [topic, setTopic] = useState('AI product launch strategy')
-  const [brief, setBrief] = useState(
-    'Create a concise, visual 5-slide deck for an executive audience.',
-  )
+  const [topic, setTopic] = useState(() => t('defaultTopic'))
+  const [brief, setBrief] = useState(() => t('defaultBrief'))
+  const topicTouched = useRef(false)
+  const briefTouched = useRef(false)
   const [pageCount, setPageCount] = useState(5)
   const [styleId, setStyleId] = useState('executive')
   const [styles, setStyles] = useState<StylePreset[]>([])
@@ -46,6 +46,15 @@ export function GenerationForm({
     () => styles.find((style) => style.id === styleId) ?? styles[0],
     [styleId, styles],
   )
+
+  useEffect(() => {
+    if (!topicTouched.current) {
+      setTopic(t('defaultTopic'))
+    }
+    if (!briefTouched.current) {
+      setBrief(t('defaultBrief'))
+    }
+  }, [language, t])
 
   useEffect(() => {
     void api.getStyles(language).then((result) => {
@@ -88,11 +97,23 @@ export function GenerationForm({
     >
       <label>
         {t('topic')}
-        <input value={topic} onChange={(event) => setTopic(event.target.value)} />
+        <input
+          value={topic}
+          onChange={(event) => {
+            topicTouched.current = true
+            setTopic(event.target.value)
+          }}
+        />
       </label>
       <label>
         {t('brief')}
-        <textarea value={brief} onChange={(event) => setBrief(event.target.value)} />
+        <textarea
+          value={brief}
+          onChange={(event) => {
+            briefTouched.current = true
+            setBrief(event.target.value)
+          }}
+        />
       </label>
       <label>
         {t('slides')}
@@ -165,7 +186,7 @@ export function GenerationForm({
             setSourceFiles((current) => [
               ...current,
               ...files.map((file) => ({
-                id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
+                id: createDraftFileId(file),
                 file,
                 notes: '',
                 required: false,
@@ -236,6 +257,13 @@ export function GenerationForm({
 
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file.name)
+}
+
+function createDraftFileId(file: File): string {
+  const randomId =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  return `${file.name}-${file.size}-${file.lastModified}-${randomId}`
 }
 
 function formatBytes(value: number): string {

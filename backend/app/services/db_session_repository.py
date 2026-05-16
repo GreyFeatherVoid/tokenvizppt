@@ -1,23 +1,40 @@
 import json
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.settings import get_settings
 from app.db.session import SessionLocal
 from app.models.session import Session
 from app.models.slide import Slide
+from app.services.access_control import RequestAccess
+from app.services.deck_spec import render_slide_spec_html
 from app.services.session_store import SessionNotFoundError, safe_session_id
 
 
 class DbSessionRepository:
-    def list_sessions(self, limit: int = 30) -> list[dict]:
+    def list_sessions(self, limit: int = 30, access: RequestAccess | None = None) -> list[dict]:
         with SessionLocal() as db:
-            sessions = db.scalars(
-                select(Session)
-                .order_by(Session.updated_at.desc())
-                .limit(max(1, min(limit, 100)))
-            ).all()
+            statement = select(Session).order_by(Session.updated_at.desc())
+            if access and access.auth_enabled:
+                if access.user_id:
+                    statement = statement.where(
+                        or_(Session.user_id == access.user_id, Session.user_id.is_(None))
+                    )
+                else:
+                    statement = statement.where(Session.user_id.is_(None))
+            sessions = db.scalars(statement.limit(max(1, min(limit, 100)))).all()
+            if access and access.auth_enabled:
+                sessions = [
+                    session
+                    for session in sessions
+                    if session.user_id == access.user_id
+                    or (
+                        session.user_id is None
+                        and self.read_session_metadata(session.metadata_json).get("anonymous_ip_hash")
+                        == access.ip_hash
+                    )
+                ]
             return [self.build_session_summary(session) for session in sessions]
 
     def get_session_detail(self, session_id: str) -> dict:
@@ -73,13 +90,13 @@ class DbSessionRepository:
         }
 
     def build_slide_payload(self, session_id: str, slide: Slide) -> dict:
+        spec = self.read_slide_spec(session_id, slide.metadata_json)
         payload = {
             "id": slide.id.split(":")[-1],
             "page_number": slide.page_number,
             "title": slide.title,
-            "html": self.read_slide_html(session_id, slide.html_path),
+            "html": render_slide_spec_html(spec) if spec else self.read_slide_html(session_id, slide.html_path),
         }
-        spec = self.read_slide_spec(session_id, slide.metadata_json)
         if spec:
             payload["spec"] = spec
         return payload

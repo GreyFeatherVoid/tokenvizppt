@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services.db_session_repository import get_db_session_repository
+from app.services.access_control import request_access, require_session_access, stamp_session_owner
 from app.services.session_store import SessionNotFoundError, get_session_store
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -70,20 +71,21 @@ class ActiveRunResponse(BaseModel):
 
 
 @router.get("", response_model=SessionListResponse)
-def list_sessions(limit: int = 30) -> SessionListResponse:
-    sessions = get_db_session_repository().list_sessions(limit)
+def list_sessions(request: Request, limit: int = 30) -> SessionListResponse:
+    sessions = get_db_session_repository().list_sessions(limit, access=request_access(request))
     return SessionListResponse(sessions=sessions)
 
 
 @router.post("", response_model=CreateSessionResponse)
-def create_session(payload: CreateSessionRequest) -> CreateSessionResponse:
+def create_session(payload: CreateSessionRequest, request: Request) -> CreateSessionResponse:
     store = get_session_store()
-    session = store.create_session(payload.model_dump())
+    session = store.create_session(stamp_session_owner(payload.model_dump(), request))
     return CreateSessionResponse(session_id=session["id"], status=session["status"])
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-def get_session(session_id: str) -> SessionResponse:
+def get_session(session_id: str, request: Request) -> SessionResponse:
+    require_session_access(session_id, request)
     try:
         session = get_db_session_repository().get_session_detail(session_id)
     except SessionNotFoundError:
@@ -96,10 +98,10 @@ def get_session(session_id: str) -> SessionResponse:
 
 
 @router.get("/{session_id}/active-run", response_model=ActiveRunResponse)
-def get_active_run(session_id: str) -> ActiveRunResponse:
+def get_active_run(session_id: str, request: Request) -> ActiveRunResponse:
     store = get_session_store()
     try:
-        session = store.get_session(session_id)
+        session = require_session_access(session_id, request)
         run_id = session.get("latest_run_id")
         status = None
         if run_id:
@@ -110,10 +112,11 @@ def get_active_run(session_id: str) -> ActiveRunResponse:
 
 
 @router.delete("/{session_id}")
-def delete_session(session_id: str) -> dict[str, str]:
+def delete_session(session_id: str, request: Request) -> dict[str, str]:
     repository = get_db_session_repository()
     store = get_session_store()
     try:
+        require_session_access(session_id, request)
         repository.delete_session(session_id)
         store.delete_session_files(session_id)
     except SessionNotFoundError as exc:

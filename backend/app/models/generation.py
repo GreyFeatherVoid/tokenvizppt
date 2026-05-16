@@ -11,6 +11,9 @@ class GenerationRun(Base, TimestampMixin):
     session_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="queued")
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

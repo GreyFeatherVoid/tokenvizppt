@@ -61,6 +61,7 @@ export function EditorPanel({
 
   const canSubmit = Boolean(slide && instruction.trim() && !editing)
   const pickerColor = toPickerColor(color)
+  const imageAssets = assets.filter((asset) => asset.kind === 'image')
 
   return (
     <aside className="editor-panel">
@@ -109,13 +110,13 @@ export function EditorPanel({
           />
         </label>
         {assetLoading ? <p>Loading images...</p> : null}
-        {!assetLoading && !assets.length ? <p>No uploaded images yet.</p> : null}
-        {assets.length ? (
+        {!assetLoading && !imageAssets.length ? <p>No uploaded images yet.</p> : null}
+        {imageAssets.length ? (
           <form
             className="asset-placement-form"
             onSubmit={(event) => {
               event.preventDefault()
-              const assetId = placementAssetId || assets[0]?.id
+              const assetId = placementAssetId || imageAssets[0]?.id
               const value = placementInstruction.trim()
               if (!assetId || !value) return
               void onPlaceAsset(assetId, value).then(() => setPlacementInstruction(''))
@@ -129,7 +130,7 @@ export function EditorPanel({
                 onChange={(event) => setPlacementAssetId(event.target.value)}
               >
                 <option value="">Use first image</option>
-                {assets.map((asset) => (
+                {imageAssets.map((asset) => (
                   <option key={asset.id} value={asset.id}>
                     {asset.file_name}
                   </option>
@@ -149,7 +150,7 @@ export function EditorPanel({
           </form>
         ) : null}
         <div className="asset-list">
-          {assets.map((asset) => (
+          {imageAssets.map((asset) => (
             <button
               className="asset-item"
               disabled={!slide || editing}
@@ -185,11 +186,13 @@ export function EditorPanel({
             className="manual-form"
             onSubmit={(event) => {
               event.preventDefault()
+              const nextText = manualText
               void onPatchElement(selectedElement, {
-                text: manualText,
+                text: nextText,
                 font_size: fontSize,
                 font_weight: fontWeight,
                 color,
+                delete: nextText.trim().length === 0,
               }).then(() => {
                 setManualText('')
                 setFontSize('')

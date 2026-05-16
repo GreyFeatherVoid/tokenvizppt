@@ -17,8 +17,10 @@ from app.services.llm_deck_generator import (
     place_required_image_in_deck,
 )
 from app.services.mock_slide_generator import build_slide_plan
+from app.services.referral_service import get_referral_service
 from app.services.session_store import get_session_store
 from app.services.style_presets import resolve_style_preset
+from app.services.usage_service import UsageCharge, get_usage_service
 
 
 async def run_generation(run_id: str) -> None:
@@ -26,6 +28,7 @@ async def run_generation(run_id: str) -> None:
     run = store.get_run(run_id)
     session = store.get_session(run["session_id"])
     asset_store = get_asset_store()
+    ai_image_charge = None
 
     try:
         store.update_run(run_id, {"status": "running"})
@@ -83,6 +86,13 @@ async def run_generation(run_id: str) -> None:
             asset_context=asset_context,
             run_id=run_id,
         )
+        if ai_image_plan:
+            charge_data = (run.get("metadata") or {}).get("charge") or {}
+            ai_image_charge = get_usage_service().reserve_ai_images(
+                user_id=charge_data.get("user_id") or session.get("user_id"),
+                run_id=run_id,
+                count=len(ai_image_plan),
+            )
         slide_payloads = await build_slides_from_specs_concurrently(
             session=session,
             outline=outline,
@@ -131,6 +141,16 @@ async def run_generation(run_id: str) -> None:
         )
 
         store.update_session(session["id"], {"status": "completed", "slides": slides})
+        if ai_image_charge:
+            store.add_run_event(
+                run_id,
+                {
+                    "progress": 96,
+                    "message": f"Charged {ai_image_charge.amount} credit(s) for AI image generation",
+                    "type": "credits_charged",
+                },
+            )
+        get_referral_service().reward_first_generation(session.get("user_id"), run_id)
         store.update_run(run_id, {"status": "completed", "progress": 100})
         store.add_run_event(
             run_id,
@@ -141,6 +161,9 @@ async def run_generation(run_id: str) -> None:
             },
         )
     except Exception as exc:
+        if ai_image_charge:
+            get_usage_service().refund(ai_image_charge, reason="refund")
+        refund_generation_charge(run)
         store.update_run(run_id, {"status": "failed", "error": str(exc)})
         store.update_session(session["id"], {"status": "failed"})
         store.add_run_event(
@@ -300,6 +323,9 @@ async def build_slide_from_spec(
     except LLMDeckGeneratorUnavailableError:
         spec = build_slide_spec(args)
         source = "local template SlideSpec because LLM is not configured"
+    except ValueError as exc:
+        spec = build_slide_spec(args)
+        source = f"local template SlideSpec after invalid LLM layout ({exc})"
     html = render_slide_spec_html(spec)
     suffix = (
         f" with AI image {ai_image_asset['file_name']}"
@@ -356,14 +382,31 @@ async def plan_ai_images_for_slides(
     run_id: str,
 ) -> dict[int, dict]:
     settings = get_settings()
-    if (
-        not session.get("enable_ai_images")
-        or not ai_image_is_configured()
-        or settings.ai_image_max_per_deck <= 0
-    ):
+    if not session.get("enable_ai_images"):
         return {}
 
     store = get_session_store()
+    if not ai_image_is_configured():
+        store.add_run_event(
+            run_id,
+            {
+                "progress": 21,
+                "message": "AI image generation was requested but backend image generation is not configured",
+                "type": "stage",
+            },
+        )
+        return {}
+    if settings.ai_image_max_per_deck <= 0:
+        store.add_run_event(
+            run_id,
+            {
+                "progress": 21,
+                "message": "AI image generation was requested but the per-deck image limit is 0",
+                "type": "stage",
+            },
+        )
+        return {}
+
     store.add_run_event(
         run_id,
         {
@@ -390,14 +433,44 @@ async def plan_ai_images_for_slides(
     )
 
     plan: dict[int, dict] = {}
+    skip_reasons: list[str] = []
     for index, decision in enumerate(decisions, start=1):
         if isinstance(decision, Exception):
+            skip_reasons.append(f"slide {index}: decision failed")
             continue
         if decision.get("decision") != "generate":
+            reason = str(decision.get("reason") or "not visually necessary")
+            skip_reasons.append(f"slide {index}: {reason}")
             continue
         plan[index] = decision
         if len(plan) >= settings.ai_image_max_per_deck:
             break
+
+    if not plan:
+        fallback = _fallback_ai_image_plan(outline, total)
+        if fallback:
+            page_number, decision = fallback
+            plan[page_number] = decision
+            store.add_run_event(
+                run_id,
+                {
+                    "progress": 21,
+                    "message": (
+                        "AI image planner skipped every slide; using the best-fit fallback "
+                        f"slide {page_number} instead"
+                    ),
+                    "type": "stage",
+                },
+            )
+        elif skip_reasons:
+            store.add_run_event(
+                run_id,
+                {
+                    "progress": 21,
+                    "message": "AI image generation skipped: " + "; ".join(skip_reasons[:4]),
+                    "type": "stage",
+                },
+            )
 
     if plan:
         store.add_run_event(
@@ -412,6 +485,49 @@ async def plan_ai_images_for_slides(
             },
         )
     return plan
+
+
+def _fallback_ai_image_plan(outline: dict, total: int) -> tuple[int, dict] | None:
+    slides = outline.get("slides") or []
+    if not slides:
+        return None
+    ranked_intents = {
+        "image-focus": 0,
+        "cover": 1,
+        "concept": 2,
+        "process": 3,
+        "summary": 4,
+        "quote": 5,
+        "comparison": 6,
+        "timeline": 7,
+    }
+    candidates: list[tuple[int, int, dict]] = []
+    for index, slide in enumerate(slides, start=1):
+        intent = str(slide.get("layout_intent") or "").strip().lower()
+        if intent == "data-focus":
+            continue
+        rank = ranked_intents.get(intent, 8)
+        candidates.append((rank, index, slide))
+    if not candidates:
+        return None
+    _, page_number, slide = min(candidates, key=lambda item: (item[0], item[1]))
+    content = "; ".join(str(point) for point in (slide.get("content") or [])[:3])
+    title = str(slide.get("title") or f"Slide {page_number}")
+    message = str(slide.get("main_message") or content or title)
+    prompt = (
+        "Create a polished, original 16:9 presentation visual with no text, no logos, "
+        "and no UI screenshots. Use the deck's style and palette. "
+        f"Slide title: {title}. Main message: {message}. Supporting ideas: {content}."
+    )
+    return page_number, {
+        "decision": "generate",
+        "reason": "User enabled AI visuals; fallback selected the best-fit non-data slide.",
+        "visual_purpose": f"Support the slide message visually: {message}",
+        "prompt": prompt,
+        "size": get_settings().ai_image_default_size,
+        "placement_guidance": "Use as a visual anchor while keeping all slide text editable and readable.",
+        "fallback": True,
+    }
 
 
 async def generate_ai_image_for_slide(
@@ -462,6 +578,21 @@ def append_image_to_asset_context(asset_context: dict, image: dict) -> dict:
 
 def language_to_locale(output_language: str | None) -> str:
     return "zh-CN" if output_language == "zh-CN" else "en-US"
+
+
+def refund_generation_charge(run: dict) -> None:
+    charge_data = (run.get("metadata") or {}).get("charge") or {}
+    charge = UsageCharge(
+        enabled=bool(charge_data.get("enabled")),
+        user_id=charge_data.get("user_id"),
+        action=str(charge_data.get("action") or "deck_generation"),
+        amount=int(charge_data.get("amount") or 0),
+        reference_type=charge_data.get("reference_type"),
+        reference_id=charge_data.get("reference_id"),
+        idempotency_key=charge_data.get("idempotency_key"),
+        anonymous=bool(charge_data.get("anonymous")),
+    )
+    get_usage_service().refund(charge, reason="refund")
 
 
 async def generate_slide_spec_with_retries(args: dict) -> dict:

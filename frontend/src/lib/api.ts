@@ -1,3 +1,5 @@
+import { clientPasswordDigest } from './password'
+
 export interface CreateSessionPayload {
   topic: string
   brief: string
@@ -179,8 +181,117 @@ export interface ExportRunState {
   error?: string | null
 }
 
+export interface AuthUser {
+  id: string
+  email: string
+  role: string
+  status: string
+  points_balance: number
+  invite_code?: string | null
+}
+
+export interface AuthMeResult {
+  authenticated: boolean
+  user?: AuthUser | null
+}
+
+export interface SendCodeResult {
+  email: string
+  expires_at: string
+  resend_after_seconds: number
+  dev_code?: string | null
+}
+
+export interface LoginResult {
+  user: AuthUser
+}
+
+export interface CreditBalance {
+  user_id: string
+  points_balance: number
+  can_checkin: boolean
+  checkin_credits: number
+}
+
+export interface CreditHistoryEntry {
+  id: string
+  user_id: string
+  amount: number
+  reason: string
+  balance_after: number
+  reference_type?: string | null
+  reference_id?: string | null
+  created_at: string
+}
+
+export interface CreditHistoryResult {
+  entries: CreditHistoryEntry[]
+}
+
+export interface AdminMeResult {
+  authorized: boolean
+  user_id: string
+  email: string
+  role: string
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  role: string
+  status: string
+  points_balance: number
+  invite_code?: string | null
+  created_at: string
+  last_login_at?: string | null
+  session_count: number
+  generation_count: number
+}
+
+export interface AdminUserListResult {
+  total: number
+  users: AdminUser[]
+}
+
+export interface AdminCreditHistoryResult {
+  total: number
+  entries: CreditHistoryEntry[]
+}
+
+export interface AdminSessionSummary extends SessionSummary {}
+
+export interface AdminSessionListResult {
+  total: number
+  sessions: AdminSessionSummary[]
+}
+
+export interface AdminAuditLog {
+  id: string
+  admin_user_id: string
+  action: string
+  target_type: string
+  target_id?: string | null
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface AdminAuditLogListResult {
+  total: number
+  logs: AdminAuditLog[]
+}
+
+export interface InviteStats {
+  invite_code: string
+  inviter_credits: number
+  invitee_credits: number
+  total_invites: number
+  rewarded_invites: number
+  pending_invites: number
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
+    credentials: 'same-origin',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -188,9 +299,21 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     },
   })
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`)
+    throw new Error(await responseErrorMessage(response))
   }
   return response.json() as Promise<T>
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown }
+    if (typeof payload.detail === 'string' && payload.detail.trim()) {
+      return payload.detail
+    }
+  } catch {
+    // Fall back to the HTTP status below when the response body is empty or not JSON.
+  }
+  return `Request failed: ${response.status} ${response.statusText}`
 }
 
 export const api = {
@@ -279,10 +402,11 @@ export const api = {
     form.append('file', file)
     const response = await fetch(`/api/assets/${sessionId}`, {
       method: 'POST',
+      credentials: 'same-origin',
       body: form,
     })
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`)
+      throw new Error(await responseErrorMessage(response))
     }
     return response.json() as Promise<Asset>
   },
@@ -320,5 +444,112 @@ export const api = {
     return requestJson(`/api/slides/${sessionId}/${slideId}/rollback/${versionId}`, {
       method: 'POST',
     })
+  },
+
+  getMe(): Promise<AuthMeResult> {
+    return requestJson('/api/auth/me')
+  },
+
+  sendAuthCode(email: string, purpose: 'login' | 'register' = 'login'): Promise<SendCodeResult> {
+    return requestJson('/api/auth/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose }),
+    })
+  },
+
+  register(email: string, password: string, code: string, referralCode?: string): Promise<LoginResult> {
+    return requestJson('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password_digest: clientPasswordDigest(password),
+        code,
+        referral_code: referralCode || undefined,
+      }),
+    })
+  },
+
+  login(email: string, password: string, code?: string): Promise<LoginResult> {
+    return requestJson('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password_digest: password ? clientPasswordDigest(password) : undefined,
+        code: code || undefined,
+      }),
+    })
+  },
+
+  logout(): Promise<{ status: string }> {
+    return requestJson('/api/auth/logout', {
+      method: 'POST',
+    })
+  },
+
+  getCreditBalance(): Promise<CreditBalance> {
+    return requestJson('/api/credits/balance')
+  },
+
+  getCreditHistory(limit = 20): Promise<CreditHistoryResult> {
+    return requestJson(`/api/credits/history?limit=${encodeURIComponent(limit)}`)
+  },
+
+  checkin(): Promise<CreditBalance> {
+    return requestJson('/api/credits/checkin', {
+      method: 'POST',
+    })
+  },
+
+  getAdminMe(): Promise<AdminMeResult> {
+    return requestJson('/api/admin/me')
+  },
+
+  listAdminUsers(params: {
+    q?: string
+    status?: string
+    role?: string
+    limit?: number
+    offset?: number
+  } = {}): Promise<AdminUserListResult> {
+    const search = new URLSearchParams()
+    if (params.q) search.set('q', params.q)
+    if (params.status) search.set('status', params.status)
+    if (params.role) search.set('role', params.role)
+    search.set('limit', String(params.limit ?? 50))
+    search.set('offset', String(params.offset ?? 0))
+    return requestJson(`/api/admin/users?${search.toString()}`)
+  },
+
+  updateAdminUser(userId: string, payload: { status?: string; role?: string }): Promise<AdminUser> {
+    return requestJson(`/api/admin/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  adjustAdminUserCredits(
+    userId: string,
+    payload: { amount: number; reason: string },
+  ): Promise<{ user: AdminUser; ledger: CreditHistoryEntry }> {
+    return requestJson(`/api/admin/users/${userId}/credits`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  getAdminUserCredits(userId: string, limit = 50): Promise<AdminCreditHistoryResult> {
+    return requestJson(`/api/admin/users/${userId}/credits?limit=${encodeURIComponent(limit)}`)
+  },
+
+  getAdminUserSessions(userId: string, limit = 50): Promise<AdminSessionListResult> {
+    return requestJson(`/api/admin/users/${userId}/sessions?limit=${encodeURIComponent(limit)}`)
+  },
+
+  getAdminAuditLogs(limit = 50): Promise<AdminAuditLogListResult> {
+    return requestJson(`/api/admin/audit-logs?limit=${encodeURIComponent(limit)}`)
+  },
+
+  getMyInvite(): Promise<InviteStats> {
+    return requestJson('/api/invites/me')
   },
 }

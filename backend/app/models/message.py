@@ -11,6 +11,9 @@ class Message(Base, TimestampMixin):
     session_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     role: Mapped[str] = mapped_column(String(40), nullable=False)
     scope: Mapped[str] = mapped_column(String(40), nullable=False, default="deck")
     slide_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

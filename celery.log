@@ -1,0 +1,24 @@
+ 
+ -------------- celery@VM-0-16-ubuntu v5.6.3 (recovery)
+--- ***** ----- 
+-- ******* ---- Linux-6.8.0-101-generic-x86_64-with-glibc2.39 2026-05-15 17:58:22
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         tokenvizppt:0x7fd3add55df0
+- ** ---------- .> transport:   redis://localhost:16379/0
+- ** ---------- .> results:     redis://localhost:16379/0
+- *** --- * --- .> concurrency: 2 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . export.pptx
+  . generation.run
+
+[2026-05-15 17:58:23,027: INFO/MainProcess] Connected to redis://localhost:16379/0
+[2026-05-15 17:58:23,031: INFO/MainProcess] mingle: searching for neighbors
+[2026-05-15 17:58:24,040: INFO/MainProcess] mingle: all alone
+[2026-05-15 17:58:24,054: INFO/MainProcess] celery@VM-0-16-ubuntu ready.

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -9,7 +9,8 @@ from app.services.asset_store import (
     AssetValidationError,
     get_asset_store,
 )
-from app.services.session_store import SessionNotFoundError, get_session_store
+from app.services.access_control import require_session_access
+from app.services.session_store import SessionNotFoundError
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -41,9 +42,9 @@ class UpdateAssetRequest(BaseModel):
 
 
 @router.get("/{session_id}", response_model=AssetListResponse)
-def list_assets(session_id: str) -> AssetListResponse:
+def list_assets(session_id: str, request: Request) -> AssetListResponse:
     try:
-        get_session_store().get_session(session_id)
+        require_session_access(session_id, request)
         assets = get_asset_store().list_assets(session_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -53,10 +54,11 @@ def list_assets(session_id: str) -> AssetListResponse:
 @router.post("/{session_id}", response_model=AssetResponse)
 async def upload_asset(
     session_id: str,
+    request: Request,
     file: Annotated[UploadFile, File()],
 ) -> AssetResponse:
     try:
-        get_session_store().get_session(session_id)
+        require_session_access(session_id, request)
         asset = await get_asset_store().save_upload(session_id, file)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -70,9 +72,10 @@ def update_asset(
     session_id: str,
     asset_id: str,
     payload: UpdateAssetRequest,
+    request: Request,
 ) -> AssetResponse:
     try:
-        get_session_store().get_session(session_id)
+        require_session_access(session_id, request)
         asset = get_asset_store().update_asset_metadata(
             session_id,
             asset_id,
@@ -87,8 +90,10 @@ def update_asset(
 
 
 @router.get("/{asset_id}/file")
-def get_asset_file(asset_id: str) -> FileResponse:
+def get_asset_file(asset_id: str, request: Request) -> FileResponse:
     try:
+        asset = get_asset_store().get_asset_by_id(asset_id)
+        require_session_access(asset["session_id"], request)
         path = get_asset_store().get_asset_file_path(asset_id)
     except (AssetNotFoundError, SessionNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

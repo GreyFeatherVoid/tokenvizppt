@@ -26,6 +26,7 @@ class DbMirror:
                 db.merge(
                     Session(
                         id=session["id"],
+                        user_id=session.get("user_id"),
                         topic=session["topic"],
                         brief=session["brief"],
                         page_count=int(session["page_count"]),
@@ -38,6 +39,8 @@ class DbMirror:
                                 "style_prompt": session.get("style_prompt") or "",
                                 "enable_ai_images": bool(session.get("enable_ai_images")),
                                 "output_language": session.get("output_language") or "auto",
+                                "user_id": session.get("user_id"),
+                                "anonymous_ip_hash": session.get("anonymous_ip_hash"),
                             },
                             ensure_ascii=False,
                         ),
@@ -58,6 +61,7 @@ class DbMirror:
                 except json.JSONDecodeError:
                     metadata = {}
                 row.status = session["status"]
+                row.user_id = session.get("user_id")
                 row.latest_run_id = session.get("latest_run_id")
                 metadata.update(
                     {
@@ -65,6 +69,8 @@ class DbMirror:
                         "slide_count": len(session.get("slides") or []),
                         "enable_ai_images": bool(session.get("enable_ai_images")),
                         "output_language": session.get("output_language") or "auto",
+                        "user_id": session.get("user_id"),
+                        "anonymous_ip_hash": session.get("anonymous_ip_hash"),
                     }
                 )
                 row.metadata_json = json.dumps(
@@ -86,7 +92,10 @@ class DbMirror:
                         status=run["status"],
                         progress=int(run.get("progress") or 0),
                         metadata_json=json.dumps(
-                            {"created_at": run.get("created_at")},
+                            {
+                                "created_at": run.get("created_at"),
+                                "usage": run.get("metadata") or {},
+                            },
                             ensure_ascii=False,
                         ),
                     )
@@ -107,6 +116,7 @@ class DbMirror:
                     {
                         "updated_at": run.get("updated_at"),
                         "event_count": len(run.get("events") or []),
+                        "usage": run.get("metadata") or {},
                     },
                     ensure_ascii=False,
                 )

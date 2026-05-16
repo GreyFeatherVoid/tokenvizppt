@@ -1,5 +1,4 @@
 import re
-import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -12,6 +11,7 @@ from pptx.util import Inches, Pt
 
 from app.core.settings import get_settings
 from app.services.asset_store import AssetNotFoundError, get_asset_store
+from app.services.deck_spec import prepare_elements_for_rendering
 from app.services.db_session_repository import get_db_session_repository
 from app.services.session_store import SessionNotFoundError, get_session_store, safe_session_id
 
@@ -47,7 +47,7 @@ async def export_session_from_spec(session_id: str) -> ExportedPptx:
         spec = slide_payload["spec"]
         ppt_slide = prs.slides.add_slide(blank)
         _set_background(ppt_slide, str(spec.get("background") or "#FFFFFF"))
-        for element in spec.get("elements") or []:
+        for element in prepare_elements_for_rendering(spec.get("elements") or []):
             if element.get("kind") == "shape":
                 _add_shape(ppt_slide, element)
             elif element.get("kind") == "text":
@@ -162,13 +162,68 @@ def _wrap_text(text: str, width_in: float, font_size_pt: float) -> str:
     if "\n" in text:
         return text
     has_cjk = bool(re.search(r"[\u3400-\u9fff\uf900-\ufaff]", text))
-    chars_per_inch = 5.8 if has_cjk else 10.2
-    width = max(8, int(width_in * chars_per_inch * 12 / max(font_size_pt, 1)))
-    if len(text) <= width:
+    capacity = _line_capacity(width_in, font_size_pt, has_cjk=has_cjk)
+    if _visual_units(text, has_cjk=has_cjk) <= capacity:
         return text
     if has_cjk:
-        return "\n".join(text[index : index + width] for index in range(0, len(text), width))
-    return "\n".join(textwrap.wrap(text, width=width, break_long_words=False))
+        return _wrap_by_visual_units(text, capacity, has_cjk=True)
+    return _wrap_latin_text(text, capacity)
+
+
+def _line_capacity(width_in: float, font_size_pt: float, *, has_cjk: bool) -> float:
+    chars_per_inch_at_12pt = 5.15 if has_cjk else 9.2
+    return max(3.0, width_in * chars_per_inch_at_12pt * 12 / max(font_size_pt, 1))
+
+
+def _wrap_by_visual_units(text: str, capacity: float, *, has_cjk: bool) -> str:
+    lines: list[str] = []
+    current = ""
+    current_units = 0.0
+    for char in text:
+        units = _char_units(char, has_cjk=has_cjk)
+        if current and current_units + units > capacity:
+            lines.append(current.rstrip())
+            current = char.lstrip()
+            current_units = _visual_units(current, has_cjk=has_cjk)
+        else:
+            current += char
+            current_units += units
+    if current:
+        lines.append(current.rstrip())
+    return "\n".join(lines)
+
+
+def _wrap_latin_text(text: str, capacity: float) -> str:
+    lines: list[str] = []
+    current = ""
+    current_units = 0.0
+    for word in text.split(" "):
+        token = word if not current else f" {word}"
+        units = _visual_units(token, has_cjk=False)
+        if current and current_units + units > capacity:
+            lines.append(current)
+            current = word
+            current_units = _visual_units(word, has_cjk=False)
+        else:
+            current += token
+            current_units += units
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
+
+
+def _visual_units(text: str, *, has_cjk: bool) -> float:
+    return sum(_char_units(char, has_cjk=has_cjk) for char in text)
+
+
+def _char_units(char: str, *, has_cjk: bool) -> float:
+    if char.isspace():
+        return 0.35
+    if re.match(r"[\u3400-\u9fff\uf900-\ufaff]", char):
+        return 1.0
+    if char in "，。；：！？、“”‘’（）《》—…":
+        return 0.75
+    return 0.55 if has_cjk else 1.0
 
 
 def _resolve_asset_path(src: str) -> Path | None:

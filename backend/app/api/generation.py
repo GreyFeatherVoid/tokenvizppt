@@ -1,11 +1,18 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from app.core.settings import get_settings
+from app.services.access_control import require_session_access
 from app.services.session_store import SessionNotFoundError, get_session_store
+from app.services.usage_service import (
+    UsageCreditsInsufficientError,
+    UsageQuotaExceededError,
+    get_usage_service,
+)
 from app.workers.tasks import run_generation_task
 
 router = APIRouter(prefix="/generation", tags=["generation"])
@@ -31,21 +38,50 @@ class GenerationStateResponse(BaseModel):
 
 
 @router.post("/start", response_model=StartGenerationResponse)
-def start_generation(payload: StartGenerationRequest) -> StartGenerationResponse:
+def start_generation(payload: StartGenerationRequest, request: Request) -> StartGenerationResponse:
     store = get_session_store()
     try:
-        run = store.create_run(payload.session_id, payload.prompt)
+        session = require_session_access(payload.session_id, request)
+        usage_service = get_usage_service()
+        user_id = usage_service.current_user_id(request.cookies.get(get_settings().auth_cookie_name))
+        charge = usage_service.reserve_deck_generation(
+            user_id=user_id,
+            ip_address=request.client.host if request.client else None,
+            session_id=payload.session_id,
+            page_count=int(session.get("page_count") or 1),
+        )
+        run = store.create_run(
+            payload.session_id,
+            payload.prompt,
+            metadata={
+                "charge": {
+                    "enabled": charge.enabled,
+                    "user_id": charge.user_id,
+                    "action": charge.action,
+                    "amount": charge.amount,
+                    "reference_type": charge.reference_type,
+                    "reference_id": charge.reference_id,
+                    "idempotency_key": charge.idempotency_key,
+                    "anonymous": charge.anonymous,
+                }
+            },
+        )
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UsageQuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except UsageCreditsInsufficientError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     run_generation_task.delay(run["id"])
     return StartGenerationResponse(run_id=run["id"], status=run["status"])
 
 
 @router.get("/{run_id}/state", response_model=GenerationStateResponse)
-def get_generation_state(run_id: str) -> GenerationStateResponse:
+def get_generation_state(run_id: str, request: Request) -> GenerationStateResponse:
     store = get_session_store()
     try:
         run = store.get_run(run_id)
+        require_session_access(run["session_id"], request)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return GenerationStateResponse(
@@ -59,9 +95,15 @@ def get_generation_state(run_id: str) -> GenerationStateResponse:
 
 
 @router.get("/{run_id}/events")
-async def stream_generation_events(run_id: str) -> EventSourceResponse:
+async def stream_generation_events(run_id: str, request: Request) -> EventSourceResponse:
+    store = get_session_store()
+    try:
+        run = store.get_run(run_id)
+        require_session_access(run["session_id"], request)
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     async def event_generator():
-        store = get_session_store()
         last_index = 0
         while True:
             try:

@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -8,6 +8,9 @@ class Session(Base, TimestampMixin):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     topic: Mapped[str] = mapped_column(String(240), nullable=False)
     brief: Mapped[str] = mapped_column(Text, nullable=False)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False)

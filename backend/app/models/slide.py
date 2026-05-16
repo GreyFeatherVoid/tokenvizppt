@@ -11,6 +11,9 @@ class Slide(Base, TimestampMixin):
     session_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     html_path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -26,6 +29,9 @@ class SlideVersion(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     slide_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)

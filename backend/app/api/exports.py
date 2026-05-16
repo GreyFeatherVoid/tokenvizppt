@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.services.pptx_exporter import get_export_file
+from app.services.access_control import require_session_access
 from app.services.session_store import SessionNotFoundError, get_session_store
 from app.workers.tasks import run_pptx_export_task
 
@@ -26,9 +27,10 @@ class ExportRunResponse(BaseModel):
 
 
 @router.post("/{session_id}/pptx", response_model=PptxExportResponse)
-def export_pptx(session_id: str) -> PptxExportResponse:
+def export_pptx(session_id: str, request: Request) -> PptxExportResponse:
     store = get_session_store()
     try:
+        require_session_access(session_id, request)
         run = store.create_export_run(session_id, "pptx")
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -41,9 +43,10 @@ def export_pptx(session_id: str) -> PptxExportResponse:
 
 
 @router.get("/runs/{export_run_id}", response_model=ExportRunResponse)
-def get_export_run(export_run_id: str) -> ExportRunResponse:
+def get_export_run(export_run_id: str, request: Request) -> ExportRunResponse:
     try:
         run = get_session_store().get_export_run(export_run_id)
+        require_session_access(run["session_id"], request)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ExportRunResponse(
@@ -58,8 +61,9 @@ def get_export_run(export_run_id: str) -> ExportRunResponse:
 
 
 @router.get("/{session_id}/{file_name}")
-def download_export(session_id: str, file_name: str) -> FileResponse:
+def download_export(session_id: str, file_name: str, request: Request) -> FileResponse:
     try:
+        require_session_access(session_id, request)
         path = get_export_file(session_id, file_name)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

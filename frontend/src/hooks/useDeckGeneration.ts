@@ -67,7 +67,8 @@ export interface SourceFileInput {
   required: boolean
 }
 
-export function useDeckGeneration(): DeckGenerationState {
+export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGenerationState {
+  const enabled = options.enabled ?? true
   const [runId, setRunId] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [events, setEvents] = useState<GenerationEvent[]>([])
@@ -161,10 +162,12 @@ export function useDeckGeneration(): DeckGenerationState {
   }
 
   useEffect(() => {
+    if (!enabled) return
     void refreshSessions()
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
+    if (!enabled) return
     const saved = window.localStorage.getItem(LAST_RUN_KEY)
     if (!saved) return
     try {
@@ -195,7 +198,7 @@ export function useDeckGeneration(): DeckGenerationState {
     } catch {
       window.localStorage.removeItem(LAST_RUN_KEY)
     }
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
     if (!runId) return

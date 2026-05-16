@@ -258,6 +258,7 @@ Usage rules:
 - Do not generate portraits, real people, logos, copyrighted characters, medical/legal/financial
   evidence, or images that imply factual proof.
 - Prefer wide 16:9-compatible sizes, usually `1536x1024`, then crop/fit into SlideSpec.
+
 - Every generated image should be saved as an asset with metadata describing prompt, model, size,
   target slide, intended slide role, placement guidance, and generation reason.
 - The generated image should go through the same vision analysis path before final SlideSpec
@@ -290,7 +291,71 @@ Current Phase 5.4 progress:
 - The target slide receives the generated image asset, vision analysis, and placement guidance in
   its prompt context.
 
-### Phase 6: Multi-User Production Hardening
+### Phase 6: Accounts, Guests, And Credits
+
+Move tokenvizPPT from a local/single-user prototype toward a public multi-user web app.
+
+Product rules:
+
+- Users log in with email verification codes.
+- Only configured email domains can register.
+- Anonymous visitors can try the product once per day per IP.
+- Anonymous usage includes one deck generation and one single-slide AI edit.
+- Registered users receive 200 credits on signup.
+- Daily check-in grants 30 credits once per calendar day.
+- Referrals can grant credits after the invited user completes their first deck generation.
+- One text/planning/edit AI action costs 1 credit.
+- One AI image generation costs 5 credits.
+- Admin users can manage accounts, credits, announcements, credit rules, and eventually provider
+  configuration.
+
+Architecture rules:
+
+- PostgreSQL remains the primary application database.
+- Backend APIs must enforce authentication, resource ownership, anonymous limits, and credit
+  charging. The frontend only displays state and errors.
+- Sessions, assets, generation runs, export runs, slide versions, and messages must be owned by
+  either a user or an anonymous guest identity.
+- Credits must be tracked with an append-only ledger, not only a mutable balance field.
+- Failed AI work should not consume credits permanently; pre-charged work must be refunded when the
+  backend reports failure.
+- Anonymous limits should use hashed IP plus date. Raw IP addresses should not be stored unless
+  explicitly needed for abuse review.
+- Production deployment should use Nginx with only HTTP/HTTPS exposed publicly. FastAPI, PostgreSQL,
+  and Redis remain private.
+
+Implementation path:
+
+1. Add auth schema: users, email verification codes, auth sessions/tokens.
+2. Add auth APIs: send code, login, logout, current user.
+3. Add ownership columns to user content tables and enforce ownership checks in all session, asset,
+   slide, generation, and export APIs.
+4. Add anonymous daily usage tracking by hashed IP and local date.
+5. Add credit schema: credit ledger, daily check-ins, cached user balance.
+6. Add credit service with charge/refund/grant operations and idempotency keys.
+7. Add referral schema and grant invitation rewards after first successful generation.
+8. Charge deck generation, page edits, and AI image generation through the credit service.
+9. Add admin role, audit logs, manual credit adjustment, account disable/enable, credit rules, and
+   announcements.
+10. Add homepage/login UI that supports anonymous trial, signup/login, balance display, invite links,
+   check-in.
+11. Add admin UI for user management, usage review, credit rules, announcements, and audit logs.
+12. Add production deployment notes for Nginx, SMTP, secure cookies, and allowed email domains.
+
+Current Phase 6 design status:
+
+- PostgreSQL is retained instead of switching to MySQL.
+- First design step is email-code authentication with an allowlist of email domains.
+- SMTP can start with a 163 mailbox for testing, but a production mail provider is preferred before
+  broader launch because consumer mailboxes can hit throttling, spam-folder, and authorization-code
+  issues.
+- Detailed first-step design is recorded in `docs/auth-credit-design.md`.
+- Admin 2FA is deferred.
+- Captcha or advanced verification-code anti-abuse is deferred until usage patterns are clearer.
+- Database-editable provider/API-key configuration is deferred until encrypted secret storage is in
+  place.
+
+### Phase 7: Multi-User Production Hardening
 
 - Add user/session isolation.
 - Add rate limits and task concurrency limits.

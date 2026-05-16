@@ -20,6 +20,7 @@ app/models/generation.py
 app/models/message.py
 app/models/session.py
 app/models/slide.py
+app/services/ai_image_generator.py
 app/services/asset_store.py
 app/services/db_mirror.py
 app/services/db_session_repository.py
@@ -29,6 +30,7 @@ app/services/editable_html.py
 app/services/export_runner.py
 app/services/generation_runner.py
 app/services/html_validation.py
+app/services/image_analyzer.py
 app/services/llm_deck_generator.py
 app/services/llm_slide_planner.py
 app/services/mock_slide_generator.py

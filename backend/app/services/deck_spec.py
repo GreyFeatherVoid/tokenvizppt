@@ -1,4 +1,5 @@
 import html
+import math
 import re
 from typing import Any
 
@@ -66,7 +67,12 @@ def build_slide_spec(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_slide_spec(spec: dict[str, Any]) -> dict[str, Any]:
+def normalize_slide_spec(
+    spec: dict[str, Any],
+    *,
+    min_elements: int = 4,
+    min_text_elements: int = 2,
+) -> dict[str, Any]:
     if not isinstance(spec, dict):
         raise SlideSpecValidationError("SlideSpec must be an object")
 
@@ -80,14 +86,18 @@ def normalize_slide_spec(spec: dict[str, Any]) -> dict[str, Any]:
     raw_elements = spec.get("elements")
     if not isinstance(raw_elements, list):
         raise SlideSpecValidationError("SlideSpec elements must be an array")
-    if not 4 <= len(raw_elements) <= 42:
-        raise SlideSpecValidationError("SlideSpec must contain 4-42 elements")
+    if not min_elements <= len(raw_elements) <= 42:
+        raise SlideSpecValidationError(f"SlideSpec must contain {min_elements}-42 elements")
 
     elements = [_normalize_element(item, index) for index, item in enumerate(raw_elements)]
     elements = _drop_overlapping_decorative_text(elements)
+    elements = fit_text_elements_for_rendering(order_elements_for_rendering(elements))
+    elements = _resolve_text_overlaps(elements)
     text_count = sum(1 for item in elements if item["kind"] == "text")
-    if text_count < 2:
-        raise SlideSpecValidationError("SlideSpec must contain at least two text elements")
+    if text_count < min_text_elements:
+        raise SlideSpecValidationError(
+            f"SlideSpec must contain at least {min_text_elements} text elements"
+        )
     _validate_text_overlap(elements)
 
     return {
@@ -139,7 +149,7 @@ def patch_element_in_spec(
 
     if delete:
         normalized["elements"] = [item for item in elements if item.get("id") != element_id]
-        return normalize_slide_spec(normalized)
+        return normalize_slide_spec(normalized, min_elements=2, min_text_elements=1)
 
     element = {**elements[index]}
     styles = styles or {}
@@ -176,7 +186,10 @@ def patch_element_in_spec(
 
 def render_slide_spec_html(spec: dict[str, Any]) -> str:
     bg = _css_color(spec.get("background"), "#F6EFE4")
-    elements = "\n".join(_render_element_html(element) for element in spec.get("elements") or [])
+    elements = "\n".join(
+        _render_element_html(element)
+        for element in prepare_elements_for_rendering(spec.get("elements") or [])
+    )
     title = html.escape(str(spec.get("title") or "Slide"))
     return f"""<!doctype html>
 <html lang="en">
@@ -226,6 +239,180 @@ def render_slide_spec_html(spec: dict[str, Any]) -> str:
   </body>
 </html>
 """
+
+
+def prepare_elements_for_rendering(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return fit_text_elements_for_rendering(order_elements_for_rendering(elements))
+
+
+def order_elements_for_rendering(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        element
+        for _, element in sorted(
+            enumerate(elements),
+            key=lambda item: (_render_layer_rank(item[1]), item[0]),
+        )
+    ]
+
+
+def _render_layer_rank(element: dict[str, Any]) -> int:
+    kind = element.get("kind")
+    if kind == "shape":
+        return 0
+    if kind == "image":
+        return 1
+    if kind == "text":
+        return 2
+    return 3
+
+
+def fit_text_elements_for_rendering(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    fitted = [{**element} for element in elements]
+    text_indexes = [index for index, element in enumerate(fitted) if element.get("kind") == "text"]
+    shapes = [element for element in fitted if element.get("kind") == "shape"]
+    for index in text_indexes:
+        element = fitted[index]
+        available_h = _available_text_height(
+            element,
+            [fitted[item] for item in text_indexes],
+            shapes,
+        )
+        current_h = float(element.get("h") or 0)
+        element["h"] = max(0.08, min(max(current_h, available_h), available_h))
+        font_size = float(element.get("fontSize") or 12)
+        line_height = float(element.get("lineHeight") or 1.16)
+        while (
+            font_size > 8
+            and _estimate_text_height(
+                str(element.get("text") or ""),
+                float(element.get("w") or 0),
+                font_size,
+                line_height,
+                bold=bool(element.get("bold")),
+            )
+            > float(element["h"])
+        ):
+            font_size -= 0.5
+        element["fontSize"] = round(font_size, 1)
+    return fitted
+
+
+def _available_text_height(
+    element: dict[str, Any],
+    texts: list[dict[str, Any]],
+    shapes: list[dict[str, Any]] | None = None,
+) -> float:
+    y = float(element.get("y") or 0)
+    current_h = float(element.get("h") or 0)
+    max_h = SLIDE_H_IN - y - 0.08
+    container = _text_container_bounds(element, shapes or [])
+    if container:
+        max_h = min(max_h, max(0.08, container["bottom"] - y - 0.12))
+    required_h = _estimate_text_height(
+        str(element.get("text") or ""),
+        float(element.get("w") or 0),
+        float(element.get("fontSize") or 12),
+        float(element.get("lineHeight") or 1.16),
+        bold=bool(element.get("bold")),
+    )
+    for other in texts:
+        if other is element:
+            continue
+        other_y = float(other.get("y") or 0)
+        if other_y <= y:
+            continue
+        if _horizontal_overlap_ratio(element, other) < 0.22:
+            continue
+        max_h = min(max_h, max(0.08, other_y - y - 0.08))
+    return max(0.08, min(max(current_h, required_h), max_h))
+
+
+def _text_container_bounds(
+    element: dict[str, Any],
+    shapes: list[dict[str, Any]],
+) -> dict[str, float] | None:
+    text_x = float(element.get("x") or 0)
+    text_y = float(element.get("y") or 0)
+    text_w = float(element.get("w") or 0)
+    text_h = float(element.get("h") or 0)
+    center_x = text_x + text_w / 2
+    center_y = text_y + min(text_h / 2, 0.18)
+    candidates: list[dict[str, float]] = []
+    for shape in shapes:
+        shape_x = float(shape.get("x") or 0)
+        shape_y = float(shape.get("y") or 0)
+        shape_w = float(shape.get("w") or 0)
+        shape_h = float(shape.get("h") or 0)
+        area = shape_w * shape_h
+        if area <= 0 or area > SLIDE_W_IN * SLIDE_H_IN * 0.72:
+            continue
+        if not (
+            shape_x - 0.04 <= center_x <= shape_x + shape_w + 0.04
+            and shape_y - 0.04 <= center_y <= shape_y + shape_h + 0.04
+        ):
+            continue
+        if text_w > shape_w + 0.12:
+            continue
+        candidates.append(
+            {
+                "x": shape_x,
+                "y": shape_y,
+                "right": shape_x + shape_w,
+                "bottom": shape_y + shape_h,
+                "area": area,
+            }
+        )
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item["area"])
+
+
+def _estimate_text_height(
+    text: str,
+    width_in: float,
+    font_size_pt: float,
+    line_height: float,
+    *,
+    bold: bool = False,
+) -> float:
+    lines = _estimate_text_lines(text, width_in, font_size_pt, bold=bold)
+    return lines * font_size_pt / 72 * line_height + 0.04
+
+
+def _estimate_text_lines(text: str, width_in: float, font_size_pt: float, *, bold: bool) -> int:
+    capacity = _text_line_capacity(width_in, font_size_pt, bold=bold)
+    explicit_lines = str(text or "").splitlines() or [""]
+    return sum(max(1, math.ceil(_text_visual_units(line) / capacity)) for line in explicit_lines)
+
+
+def _text_line_capacity(width_in: float, font_size_pt: float, *, bold: bool) -> float:
+    chars_per_inch_at_12pt = 5.05 if bold else 5.35
+    return max(3.0, width_in * chars_per_inch_at_12pt * 12 / max(font_size_pt, 1))
+
+
+def _text_visual_units(text: str) -> float:
+    total = 0.0
+    for char in text:
+        if char.isspace():
+            total += 0.35
+        elif re.match(r"[\u3400-\u9fff\uf900-\ufaff]", char):
+            total += 1.0
+        elif char in "，。；：！？、“”‘’（）《》—…":
+            total += 0.75
+        else:
+            total += 0.55
+    return total
+
+
+def _horizontal_overlap_ratio(current: dict[str, Any], other: dict[str, Any]) -> float:
+    left = max(float(current.get("x") or 0), float(other.get("x") or 0))
+    right = min(
+        float(current.get("x") or 0) + float(current.get("w") or 0),
+        float(other.get("x") or 0) + float(other.get("w") or 0),
+    )
+    overlap = max(0.0, right - left)
+    smaller = min(float(current.get("w") or 0), float(other.get("w") or 0))
+    return overlap / smaller if smaller > 0 else 0.0
 
 
 def _base_elements(
@@ -899,6 +1086,80 @@ def _validate_text_overlap(elements: list[dict[str, Any]]) -> None:
                 raise SlideSpecValidationError(
                     f"Text elements overlap too much: {current['id']} and {other['id']}"
                 )
+
+
+def _resolve_text_overlaps(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    resolved = [{**element} for element in elements]
+    shapes = [element for element in resolved if element.get("kind") == "shape"]
+    for _ in range(8):
+        pair = _first_text_overlap_pair(resolved)
+        if not pair:
+            return resolved
+        current_index, other_index = pair
+        current = resolved[current_index]
+        other = resolved[other_index]
+        if _is_decorative_text(current) and not _is_decorative_text(other):
+            current_index, other_index = other_index, current_index
+            current = resolved[current_index]
+            other = resolved[other_index]
+        moved = _move_text_below(current, other, shapes)
+        if not moved:
+            moved = _move_text_right(current, other)
+        if not moved:
+            moved = _shrink_text_height(current, other)
+        if not moved:
+            break
+    return fit_text_elements_for_rendering(order_elements_for_rendering(resolved))
+
+
+def _first_text_overlap_pair(elements: list[dict[str, Any]]) -> tuple[int, int] | None:
+    text_indexes = [index for index, item in enumerate(elements) if item["kind"] == "text"]
+    for left_pos, current_index in enumerate(text_indexes):
+        current = elements[current_index]
+        for other_index in text_indexes[left_pos + 1 :]:
+            other = elements[other_index]
+            if _text_overlap_ratio(current, other) > 0.18:
+                return current_index, other_index
+    return None
+
+
+def _move_text_below(
+    current: dict[str, Any],
+    other: dict[str, Any],
+    shapes: list[dict[str, Any]] | None = None,
+) -> bool:
+    target_y = float(current["y"]) + float(current["h"]) + 0.1
+    max_bottom = SLIDE_H_IN - 0.18
+    current_container = _text_container_bounds(current, shapes or [])
+    other_container = _text_container_bounds(other, shapes or [])
+    if current_container and other_container and current_container == other_container:
+        max_bottom = min(max_bottom, current_container["bottom"] - 0.12)
+    if target_y + float(other["h"]) <= max_bottom:
+        other["y"] = round(target_y, 3)
+        return True
+    return False
+
+
+def _move_text_right(current: dict[str, Any], other: dict[str, Any]) -> bool:
+    target_x = float(current["x"]) + float(current["w"]) + 0.14
+    if target_x + float(other["w"]) <= SLIDE_W_IN - 0.18:
+        other["x"] = round(target_x, 3)
+        return True
+    return False
+
+
+def _shrink_text_height(current: dict[str, Any], other: dict[str, Any]) -> bool:
+    if float(current["y"]) <= float(other["y"]):
+        available = float(other["y"]) - float(current["y"]) - 0.08
+        target = current
+    else:
+        available = float(current["y"]) - float(other["y"]) - 0.08
+        target = other
+    if available >= 0.12 and available < float(target["h"]):
+        target["h"] = round(available, 3)
+        target["fontSize"] = max(7, round(float(target.get("fontSize") or 12) - 1, 1))
+        return True
+    return False
 
 
 def _drop_overlapping_decorative_text(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:

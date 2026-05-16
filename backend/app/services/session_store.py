@@ -52,6 +52,8 @@ class SessionStore:
             "style_prompt": (payload.get("style_prompt") or "").strip(),
             "enable_ai_images": bool(payload.get("enable_ai_images")),
             "output_language": payload.get("output_language") or "auto",
+            "user_id": payload.get("user_id"),
+            "anonymous_ip_hash": payload.get("anonymous_ip_hash"),
             "status": "created",
             "created_at": now,
             "updated_at": now,
@@ -83,7 +85,7 @@ class SessionStore:
         shutil.rmtree(self.session_dir(session_id), ignore_errors=True)
         shutil.rmtree(self.storage_root / "assets" / session_id, ignore_errors=True)
 
-    def create_run(self, session_id: str, prompt: str) -> dict:
+    def create_run(self, session_id: str, prompt: str, metadata: dict | None = None) -> dict:
         session = self.get_session(session_id)
         run_id = uuid4().hex
         now = utc_now_iso()
@@ -94,6 +96,7 @@ class SessionStore:
             "status": "queued",
             "progress": 0,
             "events": [],
+            "metadata": metadata or {},
             "created_at": now,
             "updated_at": now,
         }

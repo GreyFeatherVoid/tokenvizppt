@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.settings import get_settings
+from app.services.access_control import require_session_access
 from app.services.asset_store import AssetNotFoundError, get_asset_store
 from app.services.deck_spec import (
     SlideSpecValidationError,
@@ -26,6 +27,12 @@ from app.services.slide_editor import (
 from app.services.slide_history import (
     SlideVersionNotFoundError,
     get_slide_history_store,
+)
+from app.services.usage_service import (
+    UsageCharge,
+    UsageCreditsInsufficientError,
+    UsageQuotaExceededError,
+    get_usage_service,
 )
 
 router = APIRouter(prefix="/slides", tags=["slides"])
@@ -88,13 +95,29 @@ async def edit_slide(
     session_id: str,
     slide_id: str,
     payload: EditSlideRequest,
+    request: Request,
 ) -> EditSlideResponse:
     store = get_session_store()
+    charge = UsageCharge(False, None, "slide_edit", 0, "slide", f"{session_id}:{slide_id}", None)
     try:
-        session = store.get_session(session_id)
+        session = require_session_access(session_id, request)
         slide = get_slide_from_session(session_id, slide_id)
+        usage_service = get_usage_service()
+        charge = usage_service.reserve_slide_edit(
+            user_id=usage_service.current_user_id(
+                request.cookies.get(get_settings().auth_cookie_name)
+            ),
+            ip_address=request.client.host if request.client else None,
+            session_id=session_id,
+            slide_id=slide_id,
+            action="slide_edit",
+        )
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UsageQuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except UsageCreditsInsufficientError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
 
     try:
         spec = None
@@ -121,6 +144,7 @@ async def edit_slide(
                 }
             )
     except Exception as exc:
+        get_usage_service().refund(charge, reason="refund")
         raise HTTPException(status_code=502, detail=f"Slide edit failed: {exc}") from exc
 
     get_slide_history_store().create_snapshot(session_id, slide, payload.instruction)
@@ -149,18 +173,20 @@ async def patch_slide_element(
     session_id: str,
     slide_id: str,
     payload: PatchSlideElementRequest,
+    request: Request,
 ) -> EditSlideResponse:
     store = get_session_store()
     try:
-        session = store.get_session(session_id)
+        session = require_session_access(session_id, request)
         slide = get_slide_from_session(session_id, slide_id)
+        delete_element = payload.delete or (payload.text is not None and not payload.text.strip())
         spec = None
         if slide.get("spec"):
             spec = patch_element_in_spec(
                 slide["spec"],
                 payload.element_id,
                 text=payload.text,
-                delete=payload.delete,
+                delete=delete_element,
                 styles={
                     "color": payload.color,
                     "font_family": payload.font_family,
@@ -176,7 +202,7 @@ async def patch_slide_element(
                 },
             )
             html = render_slide_spec_html(spec)
-        elif payload.delete:
+        elif delete_element:
             html = delete_editable_element(slide["html"], payload.element_id)
         elif payload.element_id.startswith("image-"):
             html = patch_image_element(
@@ -214,7 +240,7 @@ async def patch_slide_element(
     get_slide_history_store().create_snapshot(
         session_id,
         slide,
-        f"{'Delete' if payload.delete else 'Manual edit'}: {payload.element_id}",
+        f"{'Delete' if delete_element else 'Manual edit'}: {payload.element_id}",
     )
     updated = store.write_slide(
         session_id=session_id,
@@ -241,12 +267,15 @@ async def insert_slide_image(
     session_id: str,
     slide_id: str,
     payload: InsertImageRequest,
+    request: Request,
 ) -> EditSlideResponse:
     store = get_session_store()
     try:
-        session = store.get_session(session_id)
+        session = require_session_access(session_id, request)
         slide = get_slide_from_session(session_id, slide_id)
         asset = get_asset_store().get_asset(session_id, payload.asset_id)
+        if asset.get("kind") != "image":
+            raise HTTPException(status_code=400, detail="Only image assets can be inserted into slides")
         spec = None
         if slide.get("spec"):
             spec = insert_image_into_spec(slide["spec"], asset)
@@ -292,16 +321,34 @@ async def place_slide_image(
     session_id: str,
     slide_id: str,
     payload: PlaceImageRequest,
+    request: Request,
 ) -> EditSlideResponse:
     store = get_session_store()
+    charge = UsageCharge(False, None, "ai_image_placement", 0, "slide", f"{session_id}:{slide_id}", None)
     try:
-        session = store.get_session(session_id)
+        session = require_session_access(session_id, request)
         slide = get_slide_from_session(session_id, slide_id)
         asset = get_asset_store().get_asset(session_id, payload.asset_id)
+        if asset.get("kind") != "image":
+            raise HTTPException(status_code=400, detail="Only image assets can be placed into slides")
+        usage_service = get_usage_service()
+        charge = usage_service.reserve_slide_edit(
+            user_id=usage_service.current_user_id(
+                request.cookies.get(get_settings().auth_cookie_name)
+            ),
+            ip_address=request.client.host if request.client else None,
+            session_id=session_id,
+            slide_id=slide_id,
+            action="ai_image_placement",
+        )
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UsageQuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except UsageCreditsInsufficientError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
 
     try:
         spec = None
@@ -332,6 +379,7 @@ async def place_slide_image(
                 }
             )
     except Exception as exc:
+        get_usage_service().refund(charge, reason="refund")
         raise HTTPException(status_code=502, detail=f"Image placement failed: {exc}") from exc
 
     get_slide_history_store().create_snapshot(
@@ -360,9 +408,9 @@ async def place_slide_image(
 
 
 @router.get("/{session_id}/{slide_id}/history", response_model=SlideHistoryResponse)
-async def list_slide_history(session_id: str, slide_id: str) -> SlideHistoryResponse:
+async def list_slide_history(session_id: str, slide_id: str, request: Request) -> SlideHistoryResponse:
     try:
-        get_session_store().get_session(session_id)
+        require_session_access(session_id, request)
         versions = get_slide_history_store().list_versions(session_id, slide_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -377,11 +425,12 @@ async def rollback_slide(
     session_id: str,
     slide_id: str,
     version_id: str,
+    request: Request,
 ) -> EditSlideResponse:
     store = get_session_store()
     history_store = get_slide_history_store()
     try:
-        session = store.get_session(session_id)
+        session = require_session_access(session_id, request)
         current_slide = get_slide_from_session(session_id, slide_id)
         version = history_store.get_version(session_id, version_id)
         if version["slide_id"] != slide_id:
