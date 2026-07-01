@@ -5,6 +5,7 @@ from openai import AsyncOpenAI
 
 from app.core.settings import get_settings
 from app.services.mock_slide_generator import build_slide_plan
+from app.services.provider_config_service import get_effective_llm_config
 
 
 class LLMPlannerUnavailableError(Exception):
@@ -12,29 +13,29 @@ class LLMPlannerUnavailableError(Exception):
 
 
 def llm_is_configured() -> bool:
-    settings = get_settings()
-    return bool(settings.llm_api_key.strip() and settings.llm_model.strip())
+    return get_effective_llm_config().enabled
 
 
 async def build_slide_plan_with_llm(
     topic: str, brief: str, page_count: int
 ) -> list[dict[str, str]]:
     settings = get_settings()
+    config = get_effective_llm_config()
     if not llm_is_configured():
         raise LLMPlannerUnavailableError("LLM is not configured")
-    if settings.llm_provider.strip().lower() != "openai":
+    if config.provider.strip().lower() != "openai":
         raise LLMPlannerUnavailableError(
-            f'Unsupported LLM provider "{settings.llm_provider}". Currently use openai-compatible.'
+            f'Unsupported LLM provider "{config.provider}". Currently use openai-compatible.'
         )
 
     client = AsyncOpenAI(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url.strip() or None,
+        api_key=config.api_key,
+        base_url=config.base_url.strip() or None,
         timeout=settings.llm_timeout_seconds,
     )
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=settings.llm_temperature,
             messages=[
                 {

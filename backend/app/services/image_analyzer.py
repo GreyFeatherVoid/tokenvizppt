@@ -8,6 +8,7 @@ from app.core.settings import get_settings
 from app.services.asset_store import get_asset_store
 from app.services.llm_deck_generator import create_client
 from app.services.llm_slide_planner import extract_json_object, normalize_text
+from app.services.provider_config_service import get_effective_llm_config
 
 
 def image_to_data_url(path: Path) -> str:
@@ -36,10 +37,11 @@ async def analyze_image_asset(session_id: str, image: dict[str, Any]) -> dict[st
 
 async def request_image_analysis(image: dict[str, Any], path: Path) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=0.2,
             messages=[
                 {

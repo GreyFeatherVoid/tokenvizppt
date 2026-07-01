@@ -1,5 +1,5 @@
 [Unit]
-Description=tokenvizPPT Celery worker
+Description=tokenvizPPT Celery generation worker
 After=network.target docker.service tokenvizppt-api.service
 Wants=docker.service
 
@@ -10,7 +10,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/tokenvizppt/backend
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/home/ubuntu/miniconda3/envs/tokenvizppt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/ubuntu/miniconda3/envs/tokenvizppt/bin/python -m celery -A app.workers.celery_app.celery_app worker --loglevel=info
+ExecStart=/home/ubuntu/miniconda3/envs/tokenvizppt/bin/python -m celery -A app.workers.celery_app.celery_app worker --loglevel=info --queues=generation --concurrency=8 --prefetch-multiplier=1 -n generation@%H
 Restart=always
 RestartSec=3
 

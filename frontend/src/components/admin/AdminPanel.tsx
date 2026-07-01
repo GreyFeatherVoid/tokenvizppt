@@ -1,11 +1,28 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Ban, CheckCircle2, Coins, Loader2, RefreshCw, Search, Shield, UserCog } from 'lucide-react'
+import {
+  Ban,
+  CheckCircle2,
+  Coins,
+  Megaphone,
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  Search,
+  Shield,
+  Square,
+  UserCog,
+} from 'lucide-react'
 import {
   api,
   type AdminAuditLog,
+  type AdminDashboardStats,
+  type AdminGenerationRun,
   type AdminSessionSummary,
   type AdminUser,
+  type Announcement,
   type CreditHistoryEntry,
+  type CreditRule,
+  type ProviderConfig,
 } from '../../lib/api'
 
 interface AdminPanelProps {
@@ -21,9 +38,27 @@ export function AdminPanel({ onClose }: AdminPanelProps): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [credits, setCredits] = useState<CreditHistoryEntry[]>([])
   const [sessions, setSessions] = useState<AdminSessionSummary[]>([])
+  const [runs, setRuns] = useState<AdminGenerationRun[]>([])
+  const [dashboard, setDashboard] = useState<AdminDashboardStats | null>(null)
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [creditRules, setCreditRules] = useState<CreditRule[]>([])
+  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([])
+  const [runStatus, setRunStatus] = useState('queued')
+  const [runMessage, setRunMessage] = useState<string | null>(null)
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([])
   const [creditAmount, setCreditAmount] = useState(30)
   const [creditReason, setCreditReason] = useState('Manual adjustment')
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | undefined>()
+  const [announcementTitle, setAnnouncementTitle] = useState('')
+  const [announcementBody, setAnnouncementBody] = useState('')
+  const [announcementStatus, setAnnouncementStatus] = useState('draft')
+  const [editingProviderConfigId, setEditingProviderConfigId] = useState<string | undefined>()
+  const [providerType, setProviderType] = useState<'llm' | 'ai_image'>('llm')
+  const [providerName, setProviderName] = useState('OpenAI compatible')
+  const [providerModel, setProviderModel] = useState('')
+  const [providerBaseUrl, setProviderBaseUrl] = useState('')
+  const [providerApiKey, setProviderApiKey] = useState('')
+  const [providerStatus, setProviderStatus] = useState('disabled')
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) ?? users[0] ?? null,
@@ -72,10 +107,46 @@ export function AdminPanel({ onClose }: AdminPanelProps): React.JSX.Element {
     }
   }
 
+  async function loadRuns(status = runStatus): Promise<void> {
+    try {
+      const result = await api.getAdminGenerationRuns({
+        status: status === 'all' ? undefined : status,
+        limit: 30,
+      })
+      setRuns(result.runs)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load generation runs')
+      setRuns([])
+    }
+  }
+
+  async function loadAdminSettings(): Promise<void> {
+    try {
+      const [dashboardResult, announcementsResult, ruleResult, providerResult] = await Promise.all([
+        api.getAdminDashboard(),
+        api.getAdminAnnouncements('all'),
+        api.getAdminCreditRules(),
+        api.getAdminProviderConfigs(),
+      ])
+      setDashboard(dashboardResult)
+      setAnnouncements(announcementsResult.announcements)
+      setCreditRules(ruleResult.rules)
+      setProviderConfigs(providerResult.configs)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load admin settings')
+    }
+  }
+
   useEffect(() => {
     void loadUsers()
     void loadAuditLogs()
+    void loadRuns()
+    void loadAdminSettings()
   }, [])
+
+  useEffect(() => {
+    void loadRuns(runStatus)
+  }, [runStatus])
 
   useEffect(() => {
     if (selectedUser?.id) {
@@ -125,6 +196,101 @@ export function AdminPanel({ onClose }: AdminPanelProps): React.JSX.Element {
     }
   }
 
+  async function cancelRun(run: AdminGenerationRun): Promise<void> {
+    const reason = window.prompt('Cancel reason', 'Cancelled by admin')
+    if (!reason) return
+    setWorking(true)
+    setRunMessage(null)
+    setError(null)
+    try {
+      const result = await api.cancelAdminGenerationRun(run.id, reason)
+      setRunMessage(
+        result.refunded_credits > 0
+          ? `Cancelled ${run.id}. Refunded ${result.refunded_credits} credits.`
+          : `Cancelled ${run.id}. No credits were charged.`,
+      )
+      await Promise.all([
+        loadRuns(runStatus),
+        loadAuditLogs(),
+        selectedUser ? loadUserDetails(selectedUser.id) : Promise.resolve(),
+      ])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel generation run')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function saveAnnouncement(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    setWorking(true)
+    setError(null)
+    try {
+      await api.saveAdminAnnouncement({
+        id: editingAnnouncementId,
+        title: announcementTitle,
+        body: announcementBody,
+        status: announcementStatus,
+      })
+      setEditingAnnouncementId(undefined)
+      setAnnouncementTitle('')
+      setAnnouncementBody('')
+      setAnnouncementStatus('draft')
+      await Promise.all([loadAdminSettings(), loadAuditLogs()])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save announcement')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function updateRule(rule: CreditRule, amount: number, enabled: boolean): Promise<void> {
+    setWorking(true)
+    setError(null)
+    try {
+      const updated = await api.updateAdminCreditRule(rule.action, { amount, enabled })
+      setCreditRules((current) => current.map((item) => (item.action === updated.action ? updated : item)))
+      await loadAuditLogs()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update credit rule')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function saveProviderConfig(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    setWorking(true)
+    setError(null)
+    try {
+      await api.saveAdminProviderConfig({
+        id: editingProviderConfigId,
+        provider: providerType,
+        name: providerName,
+        model: providerModel,
+        base_url: providerBaseUrl,
+        api_key: providerApiKey || undefined,
+        status: providerStatus,
+      })
+      setEditingProviderConfigId(undefined)
+      setProviderApiKey('')
+      await Promise.all([loadAdminSettings(), loadAuditLogs()])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save provider config')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  function formatDuration(ms: number): string {
+    if (!ms) return 'not finished'
+    const seconds = Math.max(1, Math.round(ms / 1000))
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    const rest = seconds % 60
+    return rest ? `${minutes}m ${rest}s` : `${minutes}m`
+  }
+
   return (
     <section className="admin-panel">
       <header className="admin-header">
@@ -155,6 +321,26 @@ export function AdminPanel({ onClose }: AdminPanelProps): React.JSX.Element {
       </form>
 
       {error ? <p className="error-text">{error}</p> : null}
+
+      {dashboard ? (
+        <div className="admin-stat-grid">
+          <article>
+            <span>Users</span>
+            <strong>{dashboard.users.total ?? 0}</strong>
+            <small>{dashboard.users.active ?? 0} active</small>
+          </article>
+          <article>
+            <span>Projects</span>
+            <strong>{dashboard.projects.total ?? 0}</strong>
+            <small>{dashboard.generation_runs.total ?? 0} generations</small>
+          </article>
+          <article>
+            <span>Credits</span>
+            <strong>{dashboard.credits.total_balance ?? 0}</strong>
+            <small>current balance pool</small>
+          </article>
+        </div>
+      ) : null}
 
       <div className="admin-grid">
         <aside className="admin-user-list">
@@ -245,6 +431,62 @@ export function AdminPanel({ onClose }: AdminPanelProps): React.JSX.Element {
                 </AdminList>
               </div>
 
+              <div className="admin-run-card">
+                <div className="admin-run-header">
+                  <h4>Generation runs</h4>
+                  <div className="admin-run-tools">
+                    <select value={runStatus} onChange={(event) => setRunStatus(event.target.value)}>
+                      <option value="queued">Queued</option>
+                      <option value="running">Running</option>
+                      <option value="failed">Failed</option>
+                      <option value="cancelled">Cancelled</option>
+                      <option value="completed">Completed</option>
+                      <option value="all">All</option>
+                    </select>
+                    <button
+                      className="secondary-button compact-button"
+                      type="button"
+                      disabled={working}
+                      onClick={() => void loadRuns()}
+                    >
+                      <RefreshCw size={16} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+                {runMessage ? <p className="admin-run-message">{runMessage}</p> : null}
+                <ul className="admin-run-list">
+                  {runs.map((run) => (
+                    <li key={run.id}>
+                      <div>
+                        <strong>{run.topic}</strong>
+                        <span>
+                          {run.status} · {run.progress}% · {run.page_count} pages · {formatDuration(run.duration_ms)} · {run.user_email ?? 'anonymous'}
+                        </span>
+                        {run.failure_category ? (
+                          <small>{run.failure_category}: {run.failure_title ?? run.error ?? 'failed'}</small>
+                        ) : run.error ? (
+                          <small>{run.error}</small>
+                        ) : null}
+                      </div>
+                      <em>{run.charge_amount} pts {run.charge_settled ? 'charged' : 'pending'}</em>
+                      {run.status === 'queued' || run.status === 'running' ? (
+                        <button
+                          className="secondary-button compact-button danger-inline"
+                          type="button"
+                          disabled={working}
+                          onClick={() => void cancelRun(run)}
+                        >
+                          <Square size={15} />
+                          Cancel
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                  {!runs.length ? <li className="empty-row">No generation runs.</li> : null}
+                </ul>
+              </div>
+
               <AdminList title="Audit logs">
                 {auditLogs.slice(0, 8).map((log) => (
                   <li key={log.id}>
@@ -253,6 +495,189 @@ export function AdminPanel({ onClose }: AdminPanelProps): React.JSX.Element {
                   </li>
                 ))}
               </AdminList>
+
+              <div className="admin-settings-grid">
+                <section className="admin-run-card">
+                  <div className="admin-run-header">
+                    <h4>
+                      <Megaphone size={16} />
+                      Announcements
+                    </h4>
+                  </div>
+                  <form className="admin-stacked-form" onSubmit={saveAnnouncement}>
+                    <input
+                      value={announcementTitle}
+                      placeholder="Title"
+                      onChange={(event) => setAnnouncementTitle(event.target.value)}
+                    />
+                    <textarea
+                      value={announcementBody}
+                      placeholder="Announcement body"
+                      onChange={(event) => setAnnouncementBody(event.target.value)}
+                    />
+                    <select value={announcementStatus} onChange={(event) => setAnnouncementStatus(event.target.value)}>
+                      <option value="draft">Draft</option>
+                      <option value="published">Published</option>
+                      <option value="archived">Archived</option>
+                    </select>
+                    <button type="submit" disabled={working || !announcementTitle.trim() || !announcementBody.trim()}>
+                      {editingAnnouncementId ? 'Update announcement' : 'Save announcement'}
+                    </button>
+                    {editingAnnouncementId ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setEditingAnnouncementId(undefined)
+                          setAnnouncementTitle('')
+                          setAnnouncementBody('')
+                          setAnnouncementStatus('draft')
+                        }}
+                      >
+                        New announcement
+                      </button>
+                    ) : null}
+                  </form>
+                  <ul className="admin-compact-list">
+                    {announcements.slice(0, 6).map((announcement) => (
+                      <li key={announcement.id}>
+                        <strong>{announcement.title}</strong>
+                        <span>{announcement.status} · {announcement.updated_at}</span>
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          onClick={() => {
+                            setEditingAnnouncementId(announcement.id)
+                            setAnnouncementTitle(announcement.title)
+                            setAnnouncementBody(announcement.body)
+                            setAnnouncementStatus(announcement.status)
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </li>
+                    ))}
+                    {!announcements.length ? <li>No announcements.</li> : null}
+                  </ul>
+                </section>
+
+                <section className="admin-run-card">
+                  <div className="admin-run-header">
+                    <h4>
+                      <Coins size={16} />
+                      Credit rules
+                    </h4>
+                  </div>
+                  <ul className="admin-rule-list">
+                    {creditRules.map((rule) => (
+                      <li key={rule.action}>
+                        <div>
+                          <strong>{rule.label}</strong>
+                          <span>{rule.description}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min={0}
+                          value={rule.amount}
+                          onChange={(event) => {
+                            const amount = Number(event.target.value)
+                            setCreditRules((current) =>
+                              current.map((item) =>
+                                item.action === rule.action ? { ...item, amount } : item,
+                              ),
+                            )
+                          }}
+                        />
+                        <label className="inline-check">
+                          <input
+                            type="checkbox"
+                            checked={rule.enabled}
+                            onChange={(event) =>
+                              void updateRule(rule, rule.amount, event.target.checked)
+                            }
+                          />
+                          enabled
+                        </label>
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          disabled={working}
+                          onClick={() => void updateRule(rule, rule.amount, rule.enabled)}
+                        >
+                          Save
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="admin-run-card">
+                  <div className="admin-run-header">
+                    <h4>
+                      <KeyRound size={16} />
+                      Provider configs
+                    </h4>
+                  </div>
+                  <form className="admin-stacked-form" onSubmit={saveProviderConfig}>
+                    <select value={providerType} onChange={(event) => setProviderType(event.target.value as 'llm' | 'ai_image')}>
+                      <option value="llm">LLM</option>
+                      <option value="ai_image">AI image</option>
+                    </select>
+                    <input value={providerName} placeholder="Name" onChange={(event) => setProviderName(event.target.value)} />
+                    <input value={providerModel} placeholder="Model" onChange={(event) => setProviderModel(event.target.value)} />
+                    <input value={providerBaseUrl} placeholder="Base URL" onChange={(event) => setProviderBaseUrl(event.target.value)} />
+                    <input value={providerApiKey} placeholder="API key, leave empty to keep existing when editing later" onChange={(event) => setProviderApiKey(event.target.value)} />
+                    <select value={providerStatus} onChange={(event) => setProviderStatus(event.target.value)}>
+                      <option value="disabled">Disabled</option>
+                      <option value="active">Active</option>
+                    </select>
+                    <button type="submit" disabled={working || !providerModel.trim()}>
+                      {editingProviderConfigId ? 'Update provider' : 'Save provider'}
+                    </button>
+                    {editingProviderConfigId ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setEditingProviderConfigId(undefined)
+                          setProviderApiKey('')
+                          setProviderType('llm')
+                          setProviderName('OpenAI compatible')
+                          setProviderModel('')
+                          setProviderBaseUrl('')
+                          setProviderStatus('disabled')
+                        }}
+                      >
+                        New provider
+                      </button>
+                    ) : null}
+                  </form>
+                  <ul className="admin-compact-list">
+                    {providerConfigs.map((config) => (
+                      <li key={config.id}>
+                        <strong>{config.provider} · {config.model}</strong>
+                        <span>{config.status} · {config.api_key_masked || 'no key'}</span>
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          onClick={() => {
+                            setEditingProviderConfigId(config.id)
+                            setProviderType(config.provider)
+                            setProviderName(config.name)
+                            setProviderModel(config.model)
+                            setProviderBaseUrl(config.base_url ?? '')
+                            setProviderStatus(config.status)
+                            setProviderApiKey('')
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </li>
+                    ))}
+                    {!providerConfigs.length ? <li>No provider configs.</li> : null}
+                  </ul>
+                </section>
+              </div>
             </>
           ) : (
             <p className="muted-text">Select a user to manage.</p>

@@ -430,6 +430,32 @@ h1 {
   color: #245233;
 }
 
+.announcement-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: min(100%, 680px);
+  margin-top: 22px;
+  padding: 12px 14px;
+  border: 1px solid rgba(31, 87, 49, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: 0 12px 28px rgba(64, 52, 35, 0.08);
+}
+
+.announcement-strip strong {
+  color: var(--primary);
+}
+
+.announcement-strip span {
+  overflow: hidden;
+  color: var(--page-muted);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .product-visual {
   position: relative;
   min-height: 560px;
@@ -635,6 +661,44 @@ h1 {
   margin: 0 auto;
 }
 
+.announcement-board {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+  padding: 18px;
+  border: 1px solid rgba(31, 43, 32, 0.09);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 18px 42px rgba(70, 56, 38, 0.07);
+}
+
+.announcement-board > div {
+  display: grid;
+  align-content: start;
+}
+
+.announcement-board article {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid rgba(31, 43, 32, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 251, 242, 0.58);
+}
+
+.announcement-board strong {
+  color: #1f2b20;
+}
+
+.announcement-board p {
+  margin: 0;
+  color: #596451;
+  line-height: 1.45;
+}
+
 .landing-rule,
 .case-card {
   border: 1px solid rgba(31, 43, 32, 0.09);
@@ -816,6 +880,75 @@ h1 {
 .account-detail-grid p {
   margin: 0;
   line-height: 1.45;
+}
+
+.account-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.account-history-grid section {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-height: 220px;
+  padding: 18px;
+  border: 1px solid rgba(31, 43, 32, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.account-history-grid h3 {
+  margin: 0;
+  color: #1f2b20;
+  font-size: 22px;
+}
+
+.account-history-grid ul,
+.admin-compact-list,
+.admin-rule-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account-history-grid li,
+.admin-compact-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 244, 223, 0.58);
+}
+
+.admin-compact-list li strong,
+.admin-compact-list li span {
+  grid-column: 1;
+}
+
+.admin-compact-list li button {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
+}
+
+.account-history-grid strong,
+.account-history-grid span,
+.admin-compact-list strong,
+.admin-compact-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-history-grid span,
+.admin-compact-list span {
+  color: #64705c;
+  font-size: 12px;
 }
 
 .workspace {
@@ -1142,10 +1275,27 @@ button:disabled {
 
 .progress-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
   color: #2d4d35;
+}
+
+.progress-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress-status em {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(45, 77, 53, 0.1);
+  color: #2d4d35;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
 }
 
 .progress-track {
@@ -1165,6 +1315,13 @@ button:disabled {
 .meta,
 .muted {
   color: #6a735f;
+}
+
+.notification-button {
+  min-height: 38px;
+  margin-top: 10px;
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 .event-log {
@@ -1217,6 +1374,48 @@ button:disabled {
   width: fit-content;
   min-height: 42px;
   padding: 0 16px;
+}
+
+.completion-toast {
+  position: fixed;
+  right: clamp(16px, 4vw, 36px);
+  bottom: clamp(16px, 4vw, 36px);
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 14px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid rgba(45, 77, 53, 0.2);
+  border-radius: 18px;
+  background: rgba(255, 251, 242, 0.96);
+  box-shadow: 0 18px 50px rgba(51, 44, 30, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+.completion-toast strong,
+.completion-toast span {
+  min-width: 0;
+}
+
+.completion-toast strong {
+  color: #2d4d35;
+}
+
+.completion-toast span {
+  color: #596451;
+  font-size: 13px;
+}
+
+.completion-toast button {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(45, 77, 53, 0.18);
+  background: rgba(255, 255, 255, 0.56);
+  color: #2d4d35;
+  font-size: 12px;
 }
 
 .waiting-games {
@@ -1727,6 +1926,33 @@ button:disabled {
   line-height: 1;
 }
 
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-stat-grid article {
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid rgba(31, 43, 32, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.admin-stat-grid span,
+.admin-stat-grid small {
+  color: #64705c;
+}
+
+.admin-stat-grid strong {
+  color: #1f2b20;
+  font-size: 34px;
+  line-height: 1;
+}
+
 .admin-actions,
 .admin-command-row {
   justify-content: flex-end;
@@ -1874,6 +2100,173 @@ button:disabled {
   padding: 9px 10px;
   border-radius: 12px;
   background: rgba(255, 244, 223, 0.58);
+}
+
+.admin-run-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(31, 43, 32, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.admin-run-header,
+.admin-run-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-run-header h4 {
+  margin: 0;
+  color: #243426;
+  font-size: 16px;
+}
+
+.admin-run-header h4 svg {
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+
+.admin-run-tools {
+  justify-content: flex-end;
+}
+
+.admin-run-tools select {
+  width: 150px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid rgba(31, 43, 32, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 251, 242, 0.78);
+  color: #243426;
+}
+
+.admin-run-message {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(45, 77, 53, 0.1);
+  color: #2d4d35;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-run-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-run-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 244, 223, 0.58);
+}
+
+.admin-run-list li > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-run-list strong,
+.admin-run-list span,
+.admin-run-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-run-list span,
+.admin-run-list small {
+  color: #64705c;
+  font-size: 12px;
+}
+
+.admin-run-list small {
+  color: #9b402a;
+}
+
+.admin-run-list em {
+  color: #9b4e2c;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.danger-inline {
+  background: rgba(155, 64, 42, 0.1);
+  color: #9b402a;
+}
+
+.empty-row {
+  grid-template-columns: 1fr !important;
+  color: #64705c;
+  font-size: 13px;
+}
+
+.admin-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.admin-stacked-form {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-stacked-form textarea {
+  min-height: 96px;
+}
+
+.admin-stacked-form select {
+  min-height: 42px;
+}
+
+.admin-rule-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 120px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 244, 223, 0.58);
+}
+
+.admin-rule-list li > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-rule-list strong,
+.admin-rule-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-rule-list span {
+  color: #64705c;
+  font-size: 12px;
+}
+
+.admin-rule-list input[type="number"] {
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 12px;
 }
 
 @keyframes spin {
@@ -2057,6 +2450,8 @@ button:disabled {
   .case-grid,
   .account-metrics,
   .account-detail-grid,
+  .account-history-grid,
+  .announcement-board,
   .mind-game-row {
     grid-template-columns: 1fr;
   }
@@ -2078,7 +2473,9 @@ button:disabled {
   .admin-search,
   .admin-grid,
   .admin-credit-form,
-  .admin-columns {
+  .admin-columns,
+  .admin-stat-grid,
+  .admin-rule-list li {
     grid-template-columns: 1fr;
   }
 
@@ -2086,7 +2483,7 @@ button:disabled {
     width: 100%;
   }
 
-.slide-frame {
+  .slide-frame {
     width: 1120px;
     height: 630px;
   }

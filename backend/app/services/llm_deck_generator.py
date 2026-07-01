@@ -12,6 +12,7 @@ from app.services.llm_slide_planner import (
     normalize_text,
 )
 from app.services.mock_slide_generator import render_slide_html
+from app.services.provider_config_service import get_effective_llm_config
 from app.services.style_presets import resolve_style_preset
 
 
@@ -21,21 +22,23 @@ class LLMDeckGeneratorUnavailableError(Exception):
 
 def create_client() -> AsyncOpenAI:
     settings = get_settings()
+    config = get_effective_llm_config()
     if not llm_is_configured():
         raise LLMDeckGeneratorUnavailableError("LLM is not configured")
-    if settings.llm_provider.strip().lower() != "openai":
+    if config.provider.strip().lower() != "openai":
         raise LLMDeckGeneratorUnavailableError(
-            f'Unsupported LLM provider "{settings.llm_provider}". Use openai-compatible.'
+            f'Unsupported LLM provider "{config.provider}". Use openai-compatible.'
         )
     return AsyncOpenAI(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url.strip() or None,
+        api_key=config.api_key,
+        base_url=config.base_url.strip() or None,
         timeout=settings.llm_timeout_seconds,
     )
 
 
 async def generate_deck_outline(args: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         output_language = str(args.get("output_language") or "auto")
@@ -46,7 +49,7 @@ async def generate_deck_outline(args: dict[str, Any]) -> dict[str, Any]:
         )
         page_count = int(args["page_count"])
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=min(1.0, settings.llm_temperature),
             messages=[
                 {
@@ -77,10 +80,11 @@ async def generate_deck_outline(args: dict[str, Any]) -> dict[str, Any]:
 
 async def generate_slide_html(args: dict[str, Any]) -> str:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=settings.llm_temperature,
             messages=[
                 {
@@ -106,10 +110,11 @@ async def generate_slide_spec(
     args: dict[str, Any], previous_error: str | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=settings.llm_temperature,
             messages=[
                 {
@@ -132,10 +137,11 @@ async def edit_slide_spec(
     args: dict[str, Any], previous_error: str | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=settings.llm_temperature,
             messages=[
                 {
@@ -159,10 +165,11 @@ async def place_asset_in_slide_spec(
     args: dict[str, Any], previous_error: str | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=settings.llm_temperature,
             messages=[
                 {
@@ -189,10 +196,11 @@ async def place_required_image_in_deck(
     args: dict[str, Any], previous_error: str | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=settings.llm_temperature,
             messages=[
                 {
@@ -226,10 +234,11 @@ async def place_required_image_in_deck(
 
 async def decide_slide_ai_image_need(args: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
+    config = get_effective_llm_config()
     client = create_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.llm_model,
+            model=config.model,
             temperature=0.2,
             messages=[
                 {

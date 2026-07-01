@@ -14,6 +14,7 @@ import {
 
 const LAST_RUN_KEY = 'tokenvizppt:last-run'
 const EXPORT_POLL_INTERVAL_MS = 1200
+const COMPLETE_TOAST_MS = 9000
 
 export interface DeckGenerationState {
   runId: string | null
@@ -34,6 +35,9 @@ export interface DeckGenerationState {
   sessionsLoading: boolean
   exporting: boolean
   exportUrl: string | null
+  completionNotice: string | null
+  notificationsSupported: boolean
+  notificationsEnabled: boolean
   latestProgress: number
   setSelectedSlideId: (slideId: string) => void
   refreshSessions: () => Promise<void>
@@ -59,6 +63,8 @@ export interface DeckGenerationState {
   placeAssetInSelectedSlide: (assetId: string, instruction: string) => Promise<void>
   exportEditablePptx: () => Promise<void>
   rollbackSelectedSlide: (versionId: string) => Promise<void>
+  enableCompletionNotifications: () => Promise<void>
+  dismissCompletionNotice: () => void
 }
 
 export interface SourceFileInput {
@@ -86,12 +92,32 @@ export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGene
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportUrl, setExportUrl] = useState<string | null>(null)
+  const [completionNotice, setCompletionNotice] = useState<string | null>(null)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    () => typeof Notification !== 'undefined' && Notification.permission === 'granted',
+  )
+  const notificationsSupported = typeof Notification !== 'undefined'
 
   const latestProgress = useMemo(() => events.at(-1)?.progress ?? 0, [events])
   const selectedSlide = useMemo<Slide | null>(() => {
     if (!deck?.slides.length) return null
     return deck.slides.find((slide) => slide.id === selectedSlideId) ?? deck.slides[0]
   }, [deck, selectedSlideId])
+
+  const notifyCompletion = (): void => {
+    setCompletionNotice('ready')
+    window.setTimeout(() => setCompletionNotice(null), COMPLETE_TOAST_MS)
+  }
+
+  const enableCompletionNotifications = async (): Promise<void> => {
+    if (!notificationsSupported) return
+    const permission = await Notification.requestPermission()
+    setNotificationsEnabled(permission === 'granted')
+  }
+
+  const dismissCompletionNotice = (): void => {
+    setCompletionNotice(null)
+  }
 
   const loadDeck = async (nextSessionId: string): Promise<void> => {
     const nextDeck = await api.getSession(nextSessionId)
@@ -210,6 +236,7 @@ export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGene
     source.addEventListener('complete', () => {
       source.close()
       setLoading(false)
+      notifyCompletion()
       if (sessionId) {
         void loadDeck(sessionId)
         void loadAssets(sessionId)
@@ -225,6 +252,17 @@ export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGene
       } catch {
         setError('Generation failed.')
       }
+    })
+    source.addEventListener('cancelled', (event) => {
+      source.close()
+      setLoading(false)
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as { message?: string }
+        setError(data.message || 'Generation cancelled.')
+      } catch {
+        setError('Generation cancelled.')
+      }
+      void refreshSessions()
     })
     source.onerror = () => {
       source.close()
@@ -262,6 +300,7 @@ export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGene
     setSlideVersions([])
     setAssets([])
     setExportUrl(null)
+    setCompletionNotice(null)
     try {
       const session = await api.createSession({
         topic: payload.topic,
@@ -454,6 +493,9 @@ export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGene
     sessionsLoading,
     exporting,
     exportUrl,
+    completionNotice,
+    notificationsSupported,
+    notificationsEnabled,
     latestProgress,
     setSelectedSlideId,
     refreshSessions,
@@ -467,5 +509,7 @@ export function useDeckGeneration(options: { enabled?: boolean } = {}): DeckGene
     placeAssetInSelectedSlide,
     exportEditablePptx,
     rollbackSelectedSlide,
+    enableCompletionNotifications,
+    dismissCompletionNotice,
   }
 }

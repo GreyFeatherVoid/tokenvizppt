@@ -18,6 +18,7 @@ from app.services.editable_html import (
     patch_image_element,
 )
 from app.services.llm_deck_generator import edit_slide_spec, place_asset_in_slide_spec
+from app.services.provider_config_service import get_effective_llm_config
 from app.services.session_store import SessionNotFoundError, get_session_store
 from app.services.slide_editor import (
     edit_slide_html,
@@ -133,9 +134,10 @@ async def edit_slide(
             html = render_slide_spec_html(spec)
         else:
             settings = get_settings()
+            config = get_effective_llm_config()
             html = await edit_slide_html(
                 {
-                    "model": settings.llm_model,
+                    "model": config.model,
                     "temperature": settings.llm_temperature,
                     "topic": session["topic"],
                     "title": slide["title"],
@@ -366,9 +368,10 @@ async def place_slide_image(
             html = render_slide_spec_html(spec)
         else:
             settings = get_settings()
+            config = get_effective_llm_config()
             html = await place_asset_in_slide_html(
                 {
-                    "model": settings.llm_model,
+                    "model": config.model,
                     "temperature": settings.llm_temperature,
                     "topic": session["topic"],
                     "title": slide["title"],

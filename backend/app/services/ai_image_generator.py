@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.core.settings import get_settings
+from app.services.provider_config_service import get_effective_ai_image_config
 
 
 class AIImageGenerationUnavailableError(Exception):
@@ -20,28 +21,24 @@ class GeneratedImage:
 
 
 def ai_image_is_configured() -> bool:
-    settings = get_settings()
-    return bool(
-        settings.ai_image_enabled
-        and settings.ai_image_api_key.strip()
-        and settings.ai_image_model.strip()
-    )
+    return get_effective_ai_image_config().enabled
 
 
 async def generate_ai_image(prompt: str, *, size: str | None = None) -> GeneratedImage:
     settings = get_settings()
+    config = get_effective_ai_image_config()
     if not ai_image_is_configured():
         raise AIImageGenerationUnavailableError("AI image generation is not configured")
-    if settings.ai_image_provider.strip().lower() != "openai":
+    if config.provider.strip().lower() != "openai":
         raise AIImageGenerationUnavailableError(
-            f'Unsupported AI image provider "{settings.ai_image_provider}". Use openai-compatible.'
+            f'Unsupported AI image provider "{config.provider}". Use openai-compatible.'
         )
 
     image_size = size or settings.ai_image_default_size
-    base_url = settings.ai_image_base_url.strip() or "https://api.openai.com/v1"
+    base_url = config.base_url.strip() or "https://api.openai.com/v1"
     url = f"{base_url.rstrip('/')}/images/generations"
     payload = {
-        "model": settings.ai_image_model,
+        "model": config.model,
         "prompt": prompt,
         "n": 1,
         "size": image_size,
@@ -52,7 +49,7 @@ async def generate_ai_image(prompt: str, *, size: str | None = None) -> Generate
         response = await client.post(
             url,
             headers={
-                "Authorization": f"Bearer {settings.ai_image_api_key}",
+                "Authorization": f"Bearer {config.api_key}",
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -70,7 +67,7 @@ async def generate_ai_image(prompt: str, *, size: str | None = None) -> Generate
     return GeneratedImage(
         data=base64.b64decode(b64),
         mime_type="image/png",
-        model=settings.ai_image_model,
+        model=config.model,
         prompt=prompt,
         size=image_size,
     )

@@ -17,4 +17,10 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    task_default_queue="generation",
+    task_routes={
+        "generation.run": {"queue": "generation"},
+        "export.pptx": {"queue": "export"},
+    },
+    worker_prefetch_multiplier=1,
 )

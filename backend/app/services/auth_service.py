@@ -238,11 +238,16 @@ class AuthService:
             except ReferralError as exc:
                 raise AuthError(str(exc)) from exc
 
-            if settings.signup_credits > 0:
+            signup_credits = get_credit_service().rule_amount(
+                db,
+                "signup_bonus",
+                settings.signup_credits,
+            )
+            if signup_credits > 0:
                 get_credit_service().grant_in_db(
                     db,
                     user,
-                    amount=settings.signup_credits,
+                    amount=signup_credits,
                     reason="signup_bonus",
                     reference_type="user",
                     reference_id=user.id,

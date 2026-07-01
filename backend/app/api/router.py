@@ -1,9 +1,23 @@
 from fastapi import APIRouter
 
-from app.api import admin, assets, auth, credits, exports, generation, health, invites, sessions, slides, styles
+from app.api import (
+    admin,
+    announcements,
+    assets,
+    auth,
+    credits,
+    exports,
+    generation,
+    health,
+    invites,
+    sessions,
+    slides,
+    styles,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(announcements.router)
 api_router.include_router(admin.router)
 api_router.include_router(auth.router)
 api_router.include_router(credits.router)

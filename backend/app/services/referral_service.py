@@ -71,7 +71,12 @@ class ReferralService:
             metadata_json="{}",
         )
         db.add(referral)
-        invitee_bonus = get_settings().referral_invitee_credits
+        settings = get_settings()
+        invitee_bonus = get_credit_service().rule_amount(
+            db,
+            "referral_invitee_bonus",
+            settings.referral_invitee_credits,
+        )
         if invitee_bonus > 0:
             get_credit_service().grant_in_db(
                 db,
@@ -122,7 +127,12 @@ class ReferralService:
                 )
                 db.commit()
                 return
-            amount = get_settings().referral_inviter_credits
+            settings = get_settings()
+            amount = get_credit_service().rule_amount(
+                db,
+                "referral_inviter_bonus",
+                settings.referral_inviter_credits,
+            )
             if amount > 0:
                 get_credit_service().grant_in_db(
                     db,
@@ -170,11 +180,23 @@ class ReferralService:
                 )
                 or 0
             )
+            settings = get_settings()
+            credit_service = get_credit_service()
+            inviter_credits = credit_service.rule_amount(
+                db,
+                "referral_inviter_bonus",
+                settings.referral_inviter_credits,
+            )
+            invitee_credits = credit_service.rule_amount(
+                db,
+                "referral_invitee_bonus",
+                settings.referral_invitee_credits,
+            )
             db.commit()
             return {
                 "invite_code": user.invite_code,
-                "inviter_credits": get_settings().referral_inviter_credits,
-                "invitee_credits": get_settings().referral_invitee_credits,
+                "inviter_credits": inviter_credits,
+                "invitee_credits": invitee_credits,
                 "total_invites": total,
                 "rewarded_invites": rewarded,
                 "pending_invites": pending,

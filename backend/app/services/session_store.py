@@ -114,6 +114,9 @@ class SessionStore:
 
     def update_run(self, run_id: str, patch: dict) -> dict:
         run = self.get_run(run_id)
+        next_status = patch.get("status")
+        if run.get("status") == "cancelled" and next_status in {"queued", "running"}:
+            patch = {key: value for key, value in patch.items() if key != "status"}
         run.update(patch)
         run["updated_at"] = utc_now_iso()
         self.write_json(self.run_path(run_id), run)

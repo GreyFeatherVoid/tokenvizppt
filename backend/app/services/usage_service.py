@@ -1,13 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.settings import get_settings
 from app.db.session import SessionLocal
 from app.models.auth import AnonymousUsage
+from app.models.generation import GenerationRun
+from app.models.session import Session
 from app.services.auth_service import request_ip_hash
 from app.services.credit_service import (
     CreditError,
@@ -28,6 +30,10 @@ class UsageCreditsInsufficientError(UsageError):
     pass
 
 
+class UsageActiveGenerationLimitError(UsageError):
+    pass
+
+
 @dataclass(frozen=True)
 class UsageCharge:
     enabled: bool
@@ -38,10 +44,11 @@ class UsageCharge:
     reference_id: str | None
     idempotency_key: str | None
     anonymous: bool = False
+    settled: bool = True
 
     @property
     def charged(self) -> bool:
-        return self.enabled and bool(self.user_id) and self.amount > 0
+        return self.enabled and bool(self.user_id) and self.amount > 0 and self.settled
 
 
 class UsageService:
@@ -65,17 +72,30 @@ class UsageService:
         if not settings.auth_enabled:
             return self._disabled_charge("deck_generation", page_count, "session", session_id)
         if user_id:
+            self._ensure_active_generation_limit(
+                user_id=user_id,
+                ip_hash=None,
+                limit=settings.max_active_generations_per_user,
+            )
             amount = self._rule_amount("deck_generation_page", settings.deck_generation_page_credits)
             total = max(0, int(page_count)) * amount
-            return self._charge_user(
+            self._ensure_user_can_afford(user_id, total)
+            return UsageCharge(
+                enabled=True,
                 user_id=user_id,
+                action="deck_generation",
                 amount=total,
-                reason="deck_generation",
                 reference_type="session",
                 reference_id=session_id,
                 idempotency_key=f"deck_generation:{session_id}",
-                metadata={"page_count": page_count, "unit_amount": amount},
+                settled=False,
             )
+        ip_hash = request_ip_hash(ip_address)
+        self._ensure_active_generation_limit(
+            user_id=None,
+            ip_hash=ip_hash,
+            limit=settings.max_active_generations_per_ip,
+        )
         self._consume_anonymous(
             ip_address=ip_address,
             field="generation_count",
@@ -137,6 +157,7 @@ class UsageService:
         user_id: str | None,
         run_id: str,
         count: int,
+        pending_amount: int = 0,
     ) -> UsageCharge:
         settings = get_settings()
         amount = max(0, int(count)) * self._rule_amount(
@@ -154,16 +175,33 @@ class UsageService:
                 reference_type="generation_run",
                 reference_id=run_id,
                 idempotency_key=None,
+                settled=True,
             )
-        return self._charge_user(
+        self._ensure_user_can_afford(user_id, amount + max(0, int(pending_amount)))
+        return UsageCharge(
+            enabled=True,
             user_id=user_id,
+            action="ai_image_generation",
             amount=amount,
-            reason="ai_image_generation",
             reference_type="generation_run",
             reference_id=run_id,
             idempotency_key=f"ai_image_generation:{run_id}:{count}",
-            metadata={"image_count": count},
+            settled=False,
         )
+
+    def settle(self, charge: UsageCharge, *, metadata: dict | None = None) -> UsageCharge:
+        if not charge.enabled or not charge.user_id or charge.amount <= 0 or charge.settled:
+            return charge
+        self._charge_user(
+            user_id=charge.user_id,
+            amount=charge.amount,
+            reason=charge.action,
+            reference_type=charge.reference_type or "usage",
+            reference_id=charge.reference_id,
+            idempotency_key=charge.idempotency_key or f"{charge.action}:{uuid4().hex}",
+            metadata=metadata,
+        )
+        return replace(charge, settled=True)
 
     def refund(self, charge: UsageCharge, *, reason: str = "refund") -> None:
         if not charge.charged or not charge.idempotency_key:
@@ -215,7 +253,18 @@ class UsageService:
             reference_type=reference_type,
             reference_id=reference_id,
             idempotency_key=idempotency_key,
+            settled=True,
         )
+
+    def _ensure_user_can_afford(self, user_id: str, amount: int) -> None:
+        if amount <= 0:
+            return
+        try:
+            balance = get_credit_service().get_balance(user_id)
+        except CreditError as exc:
+            raise UsageError(str(exc)) from exc
+        if balance.points_balance < amount:
+            raise UsageCreditsInsufficientError("Insufficient credits")
 
     def _consume_anonymous(self, *, ip_address: str | None, field: str, limit: int) -> None:
         if limit <= 0:
@@ -280,7 +329,37 @@ class UsageService:
             reference_type=reference_type,
             reference_id=reference_id,
             idempotency_key=None,
+            settled=True,
         )
+
+    def _ensure_active_generation_limit(
+        self,
+        *,
+        user_id: str | None,
+        ip_hash: str | None,
+        limit: int,
+    ) -> None:
+        if limit <= 0:
+            return
+        with SessionLocal() as db:
+            statement = (
+                select(func.count())
+                .select_from(GenerationRun)
+                .join(Session, Session.id == GenerationRun.session_id)
+                .where(GenerationRun.status.in_(("queued", "running")))
+            )
+            if user_id:
+                statement = statement.where(GenerationRun.user_id == user_id)
+            else:
+                statement = statement.where(
+                    GenerationRun.user_id.is_(None),
+                    Session.metadata_json.contains(f'"anonymous_ip_hash": "{ip_hash}"'),
+                )
+            current = db.scalar(statement) or 0
+        if current >= limit:
+            raise UsageActiveGenerationLimitError(
+                "A generation task is already queued or running for this account."
+            )
 
 
 def get_usage_service() -> UsageService:

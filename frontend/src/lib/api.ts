@@ -77,6 +77,8 @@ export interface StylePresetList {
 export interface GenerationEvent {
   progress: number
   message: string
+  type?: string
+  timestamp?: string
 }
 
 export interface GenerationState {
@@ -265,6 +267,35 @@ export interface AdminSessionListResult {
   sessions: AdminSessionSummary[]
 }
 
+export interface AdminGenerationRun {
+  id: string
+  session_id: string
+  user_id?: string | null
+  user_email?: string | null
+  topic: string
+  page_count: number
+  status: string
+  progress: number
+  error?: string | null
+  failure_category?: string | null
+  failure_title?: string | null
+  failure_detail?: string | null
+  duration_ms: number
+  charge_amount: number
+  charge_settled: boolean
+  anonymous: boolean
+  session_status: string
+  slide_count: number
+  refunded_credits: number
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminGenerationRunListResult {
+  total: number
+  runs: AdminGenerationRun[]
+}
+
 export interface AdminAuditLog {
   id: string
   admin_user_id: string
@@ -278,6 +309,73 @@ export interface AdminAuditLog {
 export interface AdminAuditLogListResult {
   total: number
   logs: AdminAuditLog[]
+}
+
+export interface Announcement {
+  id: string
+  title: string
+  body: string
+  status: string
+  published_at?: string | null
+  created_by_user_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AnnouncementListResult {
+  total?: number
+  announcements: Announcement[]
+}
+
+export interface CreditRule {
+  id?: string | null
+  action: string
+  label: string
+  description: string
+  amount: number
+  enabled: boolean
+  source: string
+  effective_from?: string | null
+  metadata: Record<string, unknown>
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface CreditRuleListResult {
+  total: number
+  rules: CreditRule[]
+}
+
+export interface ProviderConfig {
+  id: string
+  provider: 'llm' | 'ai_image'
+  name: string
+  base_url?: string | null
+  model: string
+  status: string
+  api_key_masked: string
+  has_api_key: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface ProviderConfigListResult {
+  total: number
+  configs: ProviderConfig[]
+}
+
+export interface AdminDashboardStats {
+  users: Record<string, number>
+  projects: Record<string, number>
+  generation_runs: {
+    total?: number
+    by_status?: Record<string, number>
+  }
+  credits: {
+    total_balance?: number
+    by_reason?: Array<{ reason: string; amount: number }>
+  }
 }
 
 export interface InviteStats {
@@ -545,8 +643,94 @@ export const api = {
     return requestJson(`/api/admin/users/${userId}/sessions?limit=${encodeURIComponent(limit)}`)
   },
 
+  getAdminGenerationRuns(params: {
+    status?: string
+    limit?: number
+    offset?: number
+  } = {}): Promise<AdminGenerationRunListResult> {
+    const search = new URLSearchParams()
+    if (params.status) search.set('status', params.status)
+    search.set('limit', String(params.limit ?? 50))
+    search.set('offset', String(params.offset ?? 0))
+    return requestJson(`/api/admin/generation-runs?${search.toString()}`)
+  },
+
+  cancelAdminGenerationRun(runId: string, reason: string): Promise<AdminGenerationRun> {
+    return requestJson(`/api/admin/generation-runs/${runId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  },
+
   getAdminAuditLogs(limit = 50): Promise<AdminAuditLogListResult> {
     return requestJson(`/api/admin/audit-logs?limit=${encodeURIComponent(limit)}`)
+  },
+
+  getAnnouncements(limit = 5): Promise<AnnouncementListResult> {
+    return requestJson(`/api/announcements?limit=${encodeURIComponent(limit)}`)
+  },
+
+  getAdminDashboard(): Promise<AdminDashboardStats> {
+    return requestJson('/api/admin/dashboard')
+  },
+
+  getAdminAnnouncements(status?: string): Promise<AnnouncementListResult> {
+    const search = new URLSearchParams()
+    if (status && status !== 'all') search.set('status', status)
+    search.set('limit', '50')
+    return requestJson(`/api/admin/announcements?${search.toString()}`)
+  },
+
+  saveAdminAnnouncement(payload: {
+    id?: string
+    title: string
+    body: string
+    status: string
+  }): Promise<Announcement> {
+    const endpoint = payload.id
+      ? `/api/admin/announcements/${payload.id}`
+      : '/api/admin/announcements'
+    return requestJson(endpoint, {
+      method: payload.id ? 'PATCH' : 'POST',
+      body: JSON.stringify({
+        title: payload.title,
+        body: payload.body,
+        status: payload.status,
+      }),
+    })
+  },
+
+  getAdminCreditRules(): Promise<CreditRuleListResult> {
+    return requestJson('/api/admin/credit-rules')
+  },
+
+  updateAdminCreditRule(
+    action: string,
+    payload: { amount: number; enabled: boolean },
+  ): Promise<CreditRule> {
+    return requestJson(`/api/admin/credit-rules/${encodeURIComponent(action)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  getAdminProviderConfigs(): Promise<ProviderConfigListResult> {
+    return requestJson('/api/admin/provider-configs')
+  },
+
+  saveAdminProviderConfig(payload: {
+    id?: string
+    provider: 'llm' | 'ai_image'
+    name: string
+    base_url?: string
+    model: string
+    api_key?: string
+    status: string
+  }): Promise<ProviderConfig> {
+    return requestJson('/api/admin/provider-configs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
   },
 
   getMyInvite(): Promise<InviteStats> {

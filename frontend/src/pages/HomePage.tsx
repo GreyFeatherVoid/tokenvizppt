@@ -26,6 +26,7 @@ import { useAccount } from '../hooks/useAccount'
 import { useDeckGeneration } from '../hooks/useDeckGeneration'
 import { I18nContext, messages, useI18n, type UiLanguage } from '../i18n'
 import { api } from '../lib/api'
+import type { Announcement, CreditHistoryEntry, SessionSummary } from '../lib/api'
 
 type ThemeId = 'mint' | 'sky' | 'lime' | 'sea-salt'
 
@@ -56,10 +57,36 @@ export function HomePage(): React.JSX.Element {
   const generation = useDeckGeneration({ enabled: isWorkspace })
   const [adminAvailable, setAdminAvailable] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [language, setLanguage] = useState<UiLanguage>(() =>
     navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US',
   )
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme)
+  const i18n = useMemo(
+    () => ({
+      language,
+      t: (key: keyof typeof messages['en-US']) => messages[language][key],
+    }),
+    [language],
+  )
+
+  useEffect(() => {
+    if (!generation.completionNotice) return
+    const originalTitle = document.title
+    document.title = i18n.t('notifyReadyTitle')
+    if (generation.notificationsEnabled && typeof Notification !== 'undefined') {
+      new Notification(i18n.t('notifyReadyTitle'), {
+        body: i18n.t('notifyReadyBody'),
+      })
+    }
+    const timeout = window.setTimeout(() => {
+      document.title = originalTitle
+    }, 9000)
+    return () => {
+      window.clearTimeout(timeout)
+      document.title = originalTitle
+    }
+  }, [generation.completionNotice, generation.notificationsEnabled, i18n])
 
   useEffect(() => {
     if (!account.user) {
@@ -77,13 +104,12 @@ export function HomePage(): React.JSX.Element {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
   }, [theme])
 
-  const i18n = useMemo(
-    () => ({
-      language,
-      t: (key: keyof typeof messages['en-US']) => messages[language][key],
-    }),
-    [language],
-  )
+  useEffect(() => {
+    void api
+      .getAnnouncements(3)
+      .then((result) => setAnnouncements(result.announcements))
+      .catch(() => setAnnouncements([]))
+  }, [])
 
   return (
     <I18nContext.Provider value={i18n}>
@@ -173,6 +199,7 @@ export function HomePage(): React.JSX.Element {
               setWorkspaceOpen(true)
             }}
             onRegister={account.openRegister}
+            announcements={announcements}
           />
         ) : (
           <section className="hero-panel compact-hero">
@@ -199,6 +226,7 @@ export function HomePage(): React.JSX.Element {
             setActiveView('workspace')
             setWorkspaceOpen(true)
           }}
+          announcements={announcements}
         />
       ) : (
         <>
@@ -227,8 +255,13 @@ export function HomePage(): React.JSX.Element {
               events={generation.events}
               latestProgress={generation.latestProgress}
               sessionId={generation.sessionId}
+              loading={generation.loading}
               completed={Boolean(generation.deck) && !generation.loading}
               onViewDeck={() => deckSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              notificationAvailable={
+                generation.notificationsSupported && !generation.notificationsEnabled
+              }
+              onEnableNotifications={generation.enableCompletionNotifications}
             />
           </section>
 
@@ -259,6 +292,15 @@ export function HomePage(): React.JSX.Element {
           ) : null}
         </>
       )}
+      {generation.completionNotice ? (
+        <div className="completion-toast" role="status">
+          <strong>{i18n.t('notifyReadyTitle')}</strong>
+          <span>{i18n.t('notifyReadyBody')}</span>
+          <button type="button" onClick={generation.dismissCompletionNotice}>
+            {i18n.t('close')}
+          </button>
+        </div>
+      ) : null}
       <LoginDialog account={account} />
       </main>
     </I18nContext.Provider>
@@ -268,9 +310,11 @@ export function HomePage(): React.JSX.Element {
 function LandingHero({
   onUse,
   onRegister,
+  announcements,
 }: {
   onUse: () => void
   onRegister: () => void
+  announcements: Announcement[]
 }): React.JSX.Element {
   const { t } = useI18n()
 
@@ -310,6 +354,12 @@ function LandingHero({
             {t('editablePptx')}
           </span>
         </div>
+        {announcements.length ? (
+          <div className="announcement-strip">
+            <strong>{t('announcements')}</strong>
+            <span>{announcements[0].title}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="product-visual" aria-hidden="true">
@@ -378,7 +428,13 @@ function LandingHero({
   )
 }
 
-function LandingContent({ onUse }: { onUse: () => void }): React.JSX.Element {
+function LandingContent({
+  onUse,
+  announcements,
+}: {
+  onUse: () => void
+  announcements: Announcement[]
+}): React.JSX.Element {
   const { t } = useI18n()
   const examples = [
     {
@@ -430,12 +486,52 @@ function LandingContent({ onUse }: { onUse: () => void }): React.JSX.Element {
           )
         })}
       </div>
+      <section className="announcement-board">
+        <div>
+          <span className="eyebrow compact">
+            <Mail size={14} />
+            {t('announcements')}
+          </span>
+        </div>
+        {announcements.length ? (
+          announcements.map((announcement) => (
+            <article key={announcement.id}>
+              <strong>{announcement.title}</strong>
+              <p>{announcement.body}</p>
+            </article>
+          ))
+        ) : (
+          <p className="muted-text">{t('announcementsEmpty')}</p>
+        )}
+      </section>
     </section>
   )
 }
 
 function AccountPage({ account }: { account: ReturnType<typeof useAccount> }): React.JSX.Element {
   const { t } = useI18n()
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [credits, setCredits] = useState<CreditHistoryEntry[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  useEffect(() => {
+    if (!account.user) {
+      setSessions([])
+      setCredits([])
+      return
+    }
+    setDetailLoading(true)
+    void Promise.all([api.listSessions(), api.getCreditHistory(20)])
+      .then(([sessionResult, creditResult]) => {
+        setSessions(sessionResult.sessions)
+        setCredits(creditResult.entries)
+      })
+      .catch(() => {
+        setSessions([])
+        setCredits([])
+      })
+      .finally(() => setDetailLoading(false))
+  }, [account.user?.id])
 
   if (!account.user) {
     return (
@@ -507,6 +603,35 @@ function AccountPage({ account }: { account: ReturnType<typeof useAccount> }): R
           <p>
             {t('pendingInvites')}: {account.invite?.pending_invites ?? 0}
           </p>
+        </section>
+      </div>
+
+      <div className="account-history-grid">
+        <section>
+          <h3>{t('accountProjects')}</h3>
+          {detailLoading ? <p className="muted-text">{t('loading')}</p> : null}
+          <ul>
+            {sessions.slice(0, 8).map((session) => (
+              <li key={session.id}>
+                <strong>{session.topic}</strong>
+                <span>{session.status} · {session.slide_count} {t('slidesUnit')}</span>
+              </li>
+            ))}
+          </ul>
+          {!detailLoading && !sessions.length ? <p className="muted-text">{t('noAccountProjects')}</p> : null}
+        </section>
+        <section>
+          <h3>{t('accountCreditLedger')}</h3>
+          {detailLoading ? <p className="muted-text">{t('loading')}</p> : null}
+          <ul>
+            {credits.slice(0, 10).map((entry) => (
+              <li key={entry.id}>
+                <strong>{entry.amount > 0 ? '+' : ''}{entry.amount}</strong>
+                <span>{entry.reason} · {entry.balance_after}</span>
+              </li>
+            ))}
+          </ul>
+          {!detailLoading && !credits.length ? <p className="muted-text">{t('noCreditHistory')}</p> : null}
         </section>
       </div>
     </section>

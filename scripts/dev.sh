@@ -8,13 +8,14 @@ CONDA_ENV="${CONDA_ENV:-tokenvizppt}"
 CONDA_ROOT="${CONDA_ROOT:-$HOME/miniconda3}"
 
 API_PID=""
-WORKER_PID=""
+GENERATION_WORKER_PID=""
+EXPORT_WORKER_PID=""
 FRONTEND_PID=""
 
 cleanup() {
   echo
   echo "[dev] stopping app processes..."
-  for pid in "$FRONTEND_PID" "$WORKER_PID" "$API_PID"; do
+  for pid in "$FRONTEND_PID" "$EXPORT_WORKER_PID" "$GENERATION_WORKER_PID" "$API_PID"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -60,10 +61,19 @@ conda run --no-capture-output -n "$CONDA_ENV" \
   python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 6001 &
 API_PID=$!
 
-echo "[dev] starting Celery worker..."
+echo "[dev] starting Celery generation worker..."
 conda run --no-capture-output -n "$CONDA_ENV" \
-  python -m celery -A app.workers.celery_app.celery_app worker --loglevel=info &
-WORKER_PID=$!
+  python -m celery -A app.workers.celery_app.celery_app worker \
+    --loglevel=info --queues=generation --concurrency=2 --prefetch-multiplier=1 \
+    -n generation-dev@%h &
+GENERATION_WORKER_PID=$!
+
+echo "[dev] starting Celery export worker..."
+conda run --no-capture-output -n "$CONDA_ENV" \
+  python -m celery -A app.workers.celery_app.celery_app worker \
+    --loglevel=info --queues=export --concurrency=1 --prefetch-multiplier=1 \
+    -n export-dev@%h &
+EXPORT_WORKER_PID=$!
 
 echo "[dev] starting Vite frontend on http://localhost:6080 ..."
 cd "$FRONTEND_DIR"
@@ -75,6 +85,6 @@ echo "[dev] all services started."
 echo "[dev] frontend: http://localhost:6080"
 echo "[dev] api:      http://localhost:6001/api/health"
 echo "[dev] db:       http://localhost:6001/api/health/db"
-echo "[dev] press Ctrl+C to stop API, worker, and frontend."
+echo "[dev] press Ctrl+C to stop API, workers, and frontend."
 
 wait

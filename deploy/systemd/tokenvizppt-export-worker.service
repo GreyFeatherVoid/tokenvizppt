@@ -1,6 +1,6 @@
 [Unit]
-Description=tokenvizPPT FastAPI service
-After=network.target docker.service
+Description=tokenvizPPT Celery export worker
+After=network.target docker.service tokenvizppt-api.service
 Wants=docker.service
 
 [Service]
@@ -10,7 +10,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/tokenvizppt/backend
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/home/ubuntu/miniconda3/envs/tokenvizppt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/ubuntu/miniconda3/envs/tokenvizppt/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 6001 --lifespan off --proxy-headers --forwarded-allow-ips 127.0.0.1
+ExecStart=/home/ubuntu/miniconda3/envs/tokenvizppt/bin/python -m celery -A app.workers.celery_app.celery_app worker --loglevel=info --queues=export --concurrency=1 --prefetch-multiplier=1 -n export@%H
 Restart=always
 RestartSec=3
 

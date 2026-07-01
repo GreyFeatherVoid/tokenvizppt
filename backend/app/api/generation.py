@@ -9,6 +9,7 @@ from app.core.settings import get_settings
 from app.services.access_control import require_session_access
 from app.services.session_store import SessionNotFoundError, get_session_store
 from app.services.usage_service import (
+    UsageActiveGenerationLimitError,
     UsageCreditsInsufficientError,
     UsageQuotaExceededError,
     get_usage_service,
@@ -63,6 +64,7 @@ def start_generation(payload: StartGenerationRequest, request: Request) -> Start
                     "reference_id": charge.reference_id,
                     "idempotency_key": charge.idempotency_key,
                     "anonymous": charge.anonymous,
+                    "settled": charge.settled,
                 }
             },
         )
@@ -70,8 +72,18 @@ def start_generation(payload: StartGenerationRequest, request: Request) -> Start
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except UsageQuotaExceededError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except UsageActiveGenerationLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UsageCreditsInsufficientError as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
+    store.add_run_event(
+        run["id"],
+        {
+            "progress": 1,
+            "message": "Generation task queued",
+            "type": "queued",
+        },
+    )
     run_generation_task.delay(run["id"])
     return StartGenerationResponse(run_id=run["id"], status=run["status"])
 
@@ -137,6 +149,18 @@ async def stream_generation_events(run_id: str, request: Request) -> EventSource
                             "run_id": run_id,
                             "status": "failed",
                             "message": run.get("error") or "Generation failed",
+                        }
+                    ),
+                }
+                return
+            if run.get("status") == "cancelled":
+                yield {
+                    "event": "cancelled",
+                    "data": json.dumps(
+                        {
+                            "run_id": run_id,
+                            "status": "cancelled",
+                            "message": run.get("error") or "Generation cancelled",
                         }
                     ),
                 }

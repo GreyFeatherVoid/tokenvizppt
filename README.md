@@ -11,6 +11,11 @@ The frontend handles the creation workflow. Model calls, API keys, file parsing,
 - Analyze uploaded images with a vision-capable model.
 - Optionally generate AI visuals when a slide genuinely needs one.
 - Edit slides, text, images, and rollback versions.
+- Show queued/running/completed generation progress with completion reminders.
+- Manage accounts, credits, referrals, and admin user operations.
+- Publish announcements and display them on the homepage.
+- Configure credit rules and optional provider settings from the admin panel.
+- Charge deck generation credits only after successful generation; failed or admin-cancelled jobs are not charged.
 - Keep local deck history without login.
 - Export editable `.pptx` files.
 - Switch UI language between English and Chinese.
@@ -96,9 +101,19 @@ TOKENVIZPPT_LLM_MODEL=your-model
 TOKENVIZPPT_LLM_API_KEY=your-key
 TOKENVIZPPT_LLM_BASE_URL=https://your-openai-compatible-api/v1
 TOKENVIZPPT_LLM_TIMEOUT_SECONDS=120
+TOKENVIZPPT_GENERATION_TASK_TIMEOUT_SECONDS=1200
 
 TOKENVIZPPT_GENERATION_SLIDE_CONCURRENCY=3
 TOKENVIZPPT_IMAGE_ANALYSIS_CONCURRENCY=3
+
+TOKENVIZPPT_AUTH_ENABLED=true
+TOKENVIZPPT_ALLOWED_EMAIL_DOMAINS=["qq.com","163.com","gmail.com"]
+TOKENVIZPPT_ANON_DAILY_GENERATION_LIMIT=1
+TOKENVIZPPT_ANON_DAILY_EDIT_LIMIT=1
+TOKENVIZPPT_MAX_ACTIVE_GENERATIONS_PER_USER=1
+TOKENVIZPPT_MAX_ACTIVE_GENERATIONS_PER_IP=1
+TOKENVIZPPT_PROVIDER_CONFIG_SECRET=replace-with-random-secret
+TOKENVIZPPT_ADMIN_EMAILS=["your-admin@example.com"]
 ```
 
 Optional AI image generation:
@@ -111,6 +126,8 @@ TOKENVIZPPT_AI_IMAGE_BASE_URL=https://your-image-api
 TOKENVIZPPT_AI_IMAGE_MAX_PER_DECK=2
 ```
 
+Admin-managed provider configs are optional. When an active LLM or AI image provider config exists in the admin panel, the backend uses it before the `.env` model settings. API keys are encrypted at rest and only masked values are returned to the frontend. Set `TOKENVIZPPT_PROVIDER_CONFIG_SECRET` before using this feature; if it is empty, the backend falls back to `TOKENVIZPPT_IP_HASH_SECRET`.
+
 ## Server Deployment
 
 Recommended production layout:
@@ -120,7 +137,8 @@ Browser -> https://ppt.forgespark.org
 Nginx 80/443 -> frontend/dist
 Nginx /api/* -> FastAPI 127.0.0.1:6001
 PostgreSQL and Redis -> local only
-Celery worker -> systemd service for generation/export jobs
+Celery generation worker -> systemd service for PPT generation jobs
+Celery export worker -> systemd service for PPTX export jobs
 ```
 
 Only expose `80` and `443` publicly for web traffic. Do not expose `6001`, `15432`, or `16379`.
@@ -189,7 +207,7 @@ alembic upgrade head
 
 ### 5. Install systemd Services
 
-The production server uses systemd for the FastAPI API and Celery worker. This is more reliable than `nohup`, `tmux`, or running `scripts/dev.sh` as a background process.
+The production server uses systemd for the FastAPI API and Celery workers. This is more reliable than `nohup`, `tmux`, or running `scripts/dev.sh` as a background process.
 
 The included service files assume:
 
@@ -199,26 +217,27 @@ Python path:  /home/ubuntu/miniconda3/envs/tokenvizppt/bin/python
 Run user:     ubuntu
 ```
 
-Edit `deploy/systemd/tokenvizppt-api.service` and `deploy/systemd/tokenvizppt-worker.service` first if your server uses different paths.
+Edit `deploy/systemd/tokenvizppt-api.service`, `deploy/systemd/tokenvizppt-worker.service`, and `deploy/systemd/tokenvizppt-export-worker.service` first if your server uses different paths.
 
 ```bash
 cd /path/to/tokenvizppt
 sudo cp deploy/systemd/tokenvizppt-api.service /etc/systemd/system/tokenvizppt-api.service
 sudo cp deploy/systemd/tokenvizppt-worker.service /etc/systemd/system/tokenvizppt-worker.service
+sudo cp deploy/systemd/tokenvizppt-export-worker.service /etc/systemd/system/tokenvizppt-export-worker.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now tokenvizppt-api tokenvizppt-worker
+sudo systemctl enable --now tokenvizppt-api tokenvizppt-worker tokenvizppt-export-worker
 ```
 
 Restart backend services after backend code or `backend/.env` changes:
 
 ```bash
-sudo systemctl restart tokenvizppt-api tokenvizppt-worker
+sudo systemctl restart tokenvizppt-api tokenvizppt-worker tokenvizppt-export-worker
 ```
 
 Check status:
 
 ```bash
-sudo systemctl status tokenvizppt-api tokenvizppt-worker
+sudo systemctl status tokenvizppt-api tokenvizppt-worker tokenvizppt-export-worker
 ```
 
 Follow logs:
@@ -226,6 +245,7 @@ Follow logs:
 ```bash
 sudo journalctl -u tokenvizppt-api -f
 sudo journalctl -u tokenvizppt-worker -f
+sudo journalctl -u tokenvizppt-export-worker -f
 ```
 
 ### 6. Configure Nginx
@@ -308,6 +328,38 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+After backend code, Celery config, or environment changes, restart all backend services:
+
+```bash
+sudo systemctl restart tokenvizppt-api tokenvizppt-worker tokenvizppt-export-worker
+sudo systemctl status tokenvizppt-api tokenvizppt-worker tokenvizppt-export-worker --no-pager
+```
+
+The generation worker consumes only the `generation` queue with concurrency 8. The export worker consumes only the `export` queue with concurrency 1, so PPTX export will not occupy generation worker slots.
+
+## Generation Failure Triage
+
+Generation jobs fail without charging deck-generation credits. The admin panel shows the failure category and duration for each run.
+
+Common categories:
+
+- `timeout`: the job exceeded `TOKENVIZPPT_GENERATION_TASK_TIMEOUT_SECONDS`.
+- `credits`: the account no longer had enough credits at finalization.
+- `provider_config`: model or image provider configuration is missing.
+- `model`: the model request failed.
+- `layout`: generated slide layout failed validation.
+- `asset_placement`: required image placement failed.
+- `ai_image`: AI image generation failed.
+- `system`: unexpected backend error.
+
+Useful logs:
+
+```bash
+sudo journalctl -u tokenvizppt-api -f
+sudo journalctl -u tokenvizppt-worker -f
+sudo journalctl -u tokenvizppt-export-worker -f
+```
+
 ## Deployment Checklist
 
 - `backend/.env` exists and is not committed.
@@ -316,7 +368,7 @@ sudo systemctl reload nginx
 - `frontend/dist` exists.
 - FastAPI responds at `127.0.0.1:6001/api/health`.
 - Nginx responds at `https://ppt.forgespark.org/api/health`.
-- `tokenvizppt-api` and `tokenvizppt-worker` are active.
+- `tokenvizppt-api`, `tokenvizppt-worker`, and `tokenvizppt-export-worker` are active.
 - Certbot renewal dry-run succeeds.
 - Browser upload, generation, history, and PPTX export work.
 

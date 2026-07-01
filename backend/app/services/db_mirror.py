@@ -83,11 +83,14 @@ class DbMirror:
 
     def create_run(self, run: dict) -> None:
         def write() -> None:
+            metadata = run.get("metadata") or {}
+            charge = metadata.get("charge") or {}
             with SessionLocal() as db:
                 db.merge(
                     GenerationRun(
                         id=run["id"],
                         session_id=run["session_id"],
+                        user_id=charge.get("user_id"),
                         prompt=run["prompt"],
                         status=run["status"],
                         progress=int(run.get("progress") or 0),
@@ -106,12 +109,16 @@ class DbMirror:
 
     def update_run(self, run: dict) -> None:
         def write() -> None:
+            metadata = run.get("metadata") or {}
+            charge = metadata.get("charge") or {}
             with SessionLocal() as db:
                 row = db.get(GenerationRun, run["id"])
                 if not row:
                     return
+                row.user_id = charge.get("user_id")
                 row.status = run["status"]
                 row.progress = int(run.get("progress") or 0)
+                row.error = run.get("error")
                 row.metadata_json = json.dumps(
                     {
                         "updated_at": run.get("updated_at"),

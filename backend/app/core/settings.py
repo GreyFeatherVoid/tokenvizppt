@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_temperature: float = 0.7
     llm_timeout_seconds: float = 60
+    generation_task_timeout_seconds: int = Field(default=1200, ge=60, le=7200)
     generation_slide_concurrency: int = Field(default=3, ge=1, le=8)
     image_analysis_concurrency: int = Field(default=3, ge=1, le=8)
 
@@ -53,8 +54,11 @@ class Settings(BaseSettings):
     referral_invitee_credits: int = Field(default=20, ge=0)
     anon_daily_generation_limit: int = Field(default=1, ge=0)
     anon_daily_edit_limit: int = Field(default=1, ge=0)
+    max_active_generations_per_user: int = Field(default=1, ge=0)
+    max_active_generations_per_ip: int = Field(default=1, ge=0)
     ip_hash_secret: str = ""
     admin_emails: list[str] = []
+    provider_config_secret: str = ""
 
     smtp_host: str = ""
     smtp_port: int = Field(default=465, ge=1, le=65535)
